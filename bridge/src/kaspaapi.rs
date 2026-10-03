@@ -298,6 +298,30 @@ impl KaspaApi {
         configured_kaspa_node: Option<String>,
         configured_kaspa_pay: Option<String>,
     ) -> Result<Arc<Self>> {
+        Self::new_with_mode(address, coinbase_tag_suffix, shutdown_rx, coinbase_address_override,
+            configured_kaspa_node, configured_kaspa_pay, false).await
+    }
+
+    /// Connect to the child node while explicitly ignoring legacy parent settings.
+    pub async fn new_native(
+        address: String,
+        coinbase_tag_suffix: Option<String>,
+        shutdown_rx: watch::Receiver<bool>,
+        coinbase_address_override: Option<Address>,
+    ) -> Result<Arc<Self>> {
+        Self::new_with_mode(address, coinbase_tag_suffix, shutdown_rx, coinbase_address_override,
+            None, None, true).await
+    }
+
+    async fn new_with_mode(
+        address: String,
+        coinbase_tag_suffix: Option<String>,
+        mut shutdown_rx: watch::Receiver<bool>,
+        coinbase_address_override: Option<Address>,
+        configured_kaspa_node: Option<String>,
+        configured_kaspa_pay: Option<String>,
+        force_native: bool,
+    ) -> Result<Arc<Self>> {
         info!("Connecting to Kaspa node at {}", address);
 
         // GrpcClient requires explicit "grpc://" prefix for connection
@@ -429,6 +453,7 @@ impl KaspaApi {
             .or_else(|_| std::env::var("FIRECASH_MERGED_MINING"))
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or_else(|_| !node.trim().is_empty() && !pay.trim().is_empty());
+        let merged_mining = merged_mining && !force_native;
         if merged_mining {
             info!(
                 "Merged-mining (AuxPoW) mode ENABLED: ASICs hash a parent committing to the ZKas block; solved parents are submitted as ZKas aux blocks"
@@ -441,7 +466,7 @@ impl KaspaApi {
         // degrades to ZKas-aux-only rather than failing to start.
         let (kaspa_client, kaspa_pay) = if merged_mining {
             if node.is_empty() || pay.is_empty() {
-                info!("Real merged mining disabled (set ZKAS_KASPA_NODE + ZKAS_KASPA_PAY to also earn KAS); running ZKas-aux-only");
+                info!("Real merged mining disabled (set ZKAS_KASPA_NODE + ZKAS_KASPA_PAY to also earn KAS); using native ZKas fallback");
                 (None, None)
             } else {
                 let grpc = if node.starts_with("grpc://") { node.clone() } else { format!("grpc://{node}") };
@@ -463,12 +488,12 @@ impl KaspaApi {
                             (Some(Arc::new(kc)), Some(addr))
                         }
                         Err(e) => {
-                            warn!("ZKAS_KASPA_PAY is not a valid kaspa: address ({e}); running ZKas-aux-only");
+                            warn!("ZKAS_KASPA_PAY is not a valid kaspa: address ({e}); using native ZKas fallback");
                             (None, None)
                         }
                     },
                     Err(e) => {
-                        warn!("could not connect to Kaspa node {node} ({e}); running ZKas-aux-only");
+                        warn!("could not connect to Kaspa node {node} ({e}); using native ZKas fallback");
                         (None, None)
                     }
                 }
@@ -639,7 +664,7 @@ impl KaspaApi {
     /// address and embedding `ZKMM || h_fc` in the coinbase `extra_data`, so a solved
     /// parent is a valid Kaspa block that both (a) can be submitted to Kaspa for KAS and
     /// (b) proves the ZKas block via AuxPoW. Errs if the Kaspa client/pay address is
-    /// unset (caller falls back to a synthetic parent).
+    /// unset (caller falls back to native ZKas).
     ///
     /// `payee` overrides the pool address when a miner supplied its own `kaspa:`
     /// address in the stratum password. Passing `None` pays the pool, which is both
@@ -676,8 +701,10 @@ impl KaspaApi {
         if !self.merged_mining || self.kaspa_client.is_none() {
             return Ok(None);
         }
-        let h_fc =
-            crate::merged::committed_h_fc(current_parent).ok_or_else(|| anyhow::anyhow!("merged parent has no ZKMM commitment"))?;
+        let h_fc = match crate::merged::committed_h_fc(current_parent) {
+            Some(h) => h,
+            None => return Ok(None),
+        };
         if !self.pending_fc.lock().is_unsolved(&h_fc) {
             return Ok(None);
         }
@@ -739,7 +766,7 @@ impl KaspaApi {
     /// already-claimed ZKAS commitment cannot mint another ZKAS block, but it
     /// is still a distinct, potentially reward-bearing Kaspa block.
     pub async fn submit_merged_parent_if_solved(&self, parent: &Block) -> MergedParentSubmitOutcome {
-        if !self.merged_mining {
+        if self.merged_fc_target(parent).is_none() {
             return MergedParentSubmitOutcome::NotMerged;
         }
 
@@ -809,7 +836,7 @@ impl KaspaApi {
         // the ZKas block carrying the AuxPoW proof (stashed ZKas block + this
         // parent's kHeavyHash) and submit that instead. The aux rides on
         // `RpcRawHeader.aux_pow`, so the `(&block).into()` conversion below transmits it.
-        let block = if self.merged_mining {
+        let block = if self.merged_fc_target(&block).is_some() {
             // Assemble the ZKas block carrying the AuxPoW proof from the same parent.
             match crate::merged::committed_h_fc(&block).and_then(|h| self.pending_fc.lock().get(&h)) {
                 Some(fc_block) => crate::merged::assemble_aux_block(&block, &fc_block),
@@ -1212,15 +1239,14 @@ impl KaspaApi {
                                     // Real dual-chain: a genuine Kaspa block whose coinbase commits to
                                     // H_fc — clearing its (hard) target also earns KAS.
                                     Ok(p) => p,
-                                    // No/failed Kaspa node: fall back to a synthetic parent so ZKas
-                                    // aux blocks keep flowing (no KAS, but the chain stays live).
+                                    // Parent unavailable: mine the original ZKas template natively.
                                     Err(e) => {
                                         if self.kaspa_client.is_some() {
                                             warn!(
-                                                "merged: Kaspa parent fetch failed ({e}); using synthetic parent this round (no KAS)"
+                                                "merged: Kaspa parent fetch failed ({e}); using NATIVE ZKas this round"
                                             );
                                         }
-                                        crate::merged::build_parent_block(&block).0
+                                        return Ok(block);
                                     }
                                 };
                                 self.pending_fc.lock().insert_with_payee(h_fc, block, paid_pool);

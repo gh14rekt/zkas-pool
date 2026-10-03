@@ -7,6 +7,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Instance-specific configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct InstanceConfig {
+    /// Explicit native mode isolates this port from global/env merge settings.
+    #[serde(default)]
+    pub mining_mode: Option<crate::parent::MiningMode>,
     #[serde(deserialize_with = "deserialize_port")]
     pub stratum_port: String,
     // f64 so vardiff can drop the share difficulty below 1 on low-difficulty
@@ -234,6 +237,7 @@ impl Default for GlobalConfig {
 impl Default for InstanceConfig {
     fn default() -> Self {
         Self {
+            mining_mode: None,
             stratum_port: ":5555".to_string(),
             min_share_diff: 8192.0,
             prom_port: None,

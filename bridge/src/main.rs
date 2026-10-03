@@ -408,7 +408,9 @@ async fn main() -> Result<(), anyhow::Error> {
         let instance_num = idx + 1;
         let instance = instance_config.clone();
         let global = config.global.clone();
-        let kaspa_api_clone = Arc::clone(&kaspa_api);
+        let kaspa_api_clone = if instance.mining_mode == Some(kaspa_stratum_bridge::parent::MiningMode::Native) {
+            KaspaApi::new_native(global.kaspad_address.clone(), global.coinbase_tag_suffix.clone(), shutdown_rx.clone(), None).await?
+        } else { Arc::clone(&kaspa_api) };
         let instance_shutdown_rx = shutdown_rx.clone();
 
         let is_first_instance = idx == 0;
@@ -454,12 +456,13 @@ async fn main() -> Result<(), anyhow::Error> {
                 // Standalone binary is not fronted by the fly edge.
                 proxy_protocol: false,
                 kaspa_common_protocol: instance.kaspa_common_protocol,
+                extranonce_with_size: instance.extranonce_with_size,
             };
 
             listen_and_serve_with_shutdown(
                 bridge_config,
                 Arc::clone(&kaspa_api_clone),
-                if is_first_instance { Some(kaspa_api_clone) } else { None },
+                if is_first_instance || instance.mining_mode.is_some() { Some(kaspa_api_clone) } else { None },
                 instance_shutdown_rx,
             )
             .await

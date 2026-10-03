@@ -902,6 +902,7 @@ impl ShareHandler {
                 let header_version = header_clone.version;
                 let original_timestamp = header_clone.timestamp;
                 header_clone.nonce = nonce_val;
+                header_clone.finalize();
                 let transactions_vec = current_job.block.transactions.iter().cloned().collect();
                 let block = Block::from_arcs(Arc::new(header_clone), Arc::new(transactions_vec));
 
