@@ -753,6 +753,8 @@ impl ClientHandler {
             let send_result = if is_iceriver {
                 // IceRiver expects minimal notification format (method + params only, no id or jsonrpc)
                 client_clone.send_notification("mining.notify", job_params.clone()).await
+            } else if remote_app_lower.contains("nicehash") {
+                client_clone.send_v1_notification("mining.notify", job_params.clone()).await
             } else {
                 // For non-IceRiver, use standard JSON-RPC format with job ID
                 let notify_event = JsonRpcEvent {
@@ -1069,6 +1071,8 @@ impl ClientHandler {
                 let send_result = if is_iceriver_client {
                     // IceRiver expects minimal notification format (method + params only, no id or jsonrpc)
                     client_clone.send_notification("mining.notify", job_params.clone()).await
+                } else if remote_app_lower.contains("nicehash") {
+                    client_clone.send_v1_notification("mining.notify", job_params.clone()).await
                 } else {
                     // For non-IceRiver, use standard JSON-RPC format with job ID
                     let notify_event = JsonRpcEvent {
@@ -1207,6 +1211,8 @@ impl ClientHandler {
 
                 let send_result = if is_iceriver {
                     client.send_notification("mining.notify", params).await
+                } else if remote_app_lower.contains("nicehash") {
+                    client.send_v1_notification("mining.notify", params).await
                 } else {
                     client
                         .send(JsonRpcEvent {
@@ -1240,11 +1246,17 @@ async fn send_client_diff(instance_id: &str, client: &StratumContext, diff: f64)
 
     debug!("[DIFFICULTY] Sending mining.set_difficulty to {}", client.remote_addr);
 
-    // Always use standard JSON-RPC format
+    // Rental proxies use Stratum v1 notifications, with an explicit null id.
+    let nicehash = client.remote_app.lock().to_ascii_lowercase().contains("nicehash");
     let diff_event =
         JsonRpcEvent { jsonrpc: "2.0".to_string(), method: "mining.set_difficulty".to_string(), id: None, params: vec![diff_value] };
 
-    if let Err(e) = client.send(diff_event).await {
+    let sent = if nicehash {
+        client.send_v1_notification("mining.set_difficulty", diff_event.params).await
+    } else {
+        client.send(diff_event).await
+    };
+    if let Err(e) = sent {
         let wallet_addr = client.wallet_addr.lock().clone();
         record_worker_error(instance_id, &wallet_addr, crate::errors::ErrorShortCode::FailedSetDiff.as_str());
         error!("[DIFFICULTY] ERROR: Failed sending difficulty: {}", e);
@@ -1297,5 +1309,11 @@ mod seed_tests {
         let message: serde_json::Value = serde_json::from_slice(&bytes[..read]).unwrap();
         assert_eq!(message["method"], "mining.set_difficulty");
         assert_eq!(message["params"][0], 256.0);
+
+        *ctx.remote_app.lock() = "NiceHash/1.0.0".to_string();
+        send_client_diff("test", &ctx, 16384.0).await.unwrap();
+        let read = tokio::time::timeout(std::time::Duration::from_secs(1), client.read(&mut bytes)).await.unwrap().unwrap();
+        let message: serde_json::Value = serde_json::from_slice(&bytes[..read]).unwrap();
+        assert_eq!(message, serde_json::json!({"id": null, "method": "mining.set_difficulty", "params": [16384]}));
     }
 }
