@@ -1,7 +1,7 @@
 /* Connection generator only: never changes the pool or submits a transaction. */
 (() => {
   'use strict';
-  const labels = {native: 'ZKas — native'};
+  const labels = {native: 'ZKas — native', kaspa: 'Kaspa + ZKas'};
   const alphabet = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
   function address(raw, prefixes, shielded = false) {
     const value = raw.trim();
@@ -44,6 +44,11 @@
     const worker = values.worker.trim();
     if (worker && !/^[A-Za-z0-9_-]{1,64}$/.test(worker)) throw new Error('Worker name: up to 64 letters, digits, underscores or hyphens.');
     let password = 'x';
+    if (option.mode !== 'native') {
+      const prefixes = ['kaspa', 'kaspatest', 'kaspadev', 'kaspasim'];
+      if (!prefixes.includes(option.parentPrefix)) throw new Error('Parent payout network is unavailable.');
+      password = address(values[option.mode], [option.parentPrefix]);
+    }
     return {url: `stratum+tcp://${host}:${option.port}`, username: wallet + (worker ? `.${worker}` : ''), password};
   }
   const api = {address, credentials};
@@ -58,6 +63,8 @@
   let options = [], result = null;
   function render() {
     const option = options[Number(select.value)];
+    document.getElementById('kaspaPayoutField').hidden = option?.mode !== 'kaspa';
+    document.getElementById('miningMergeNote').hidden = !option || option.mode === 'native';
     document.getElementById('parentNetwork').textContent = option?.parentPrefix ? `Payout network: ${option.parentPrefix}:` : '';
     result = null; output.hidden = true; copy.disabled = true;
     if (!option) return;
