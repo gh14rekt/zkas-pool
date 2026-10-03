@@ -86,3 +86,47 @@ Deployment boundary
   No public pool, mainnet mining, VPS deployment or rented ASIC test is performed
   by these instructions. Review fee behavior, payout addresses, rate limits,
   resource bounds and ASIC difficulty handling before the planned hardware trial.
+
+Built-in dashboard connection generator
+  GET /api/mining publishes the effective explicit-mode instances after CLI
+  overrides: instance id, native/kaspa/sedra, Stratum port and parent HRP.
+  The aggregated dashboard lists every instance; per-instance dashboards list
+  only their own port. Legacy env-only modes are not guessed or advertised.
+  No parent RPC URL or default payout address is exposed by this endpoint.
+
+  Mining setup selects a port and generates the exact Stratum credentials:
+  username = shielded ZKas address[.worker]; password = x for native, otherwise
+  the miner's own Kaspa/Sedra address. The fields hold public addresses only;
+  they are not persisted or sent to the pool by the form. The miner must apply
+  the generated values in the ASIC/MRR configuration. This does not switch the
+  pool globally or rewrite its configuration.
+
+  The parent address is mandatory in this generator. Checksum, version and the
+  configured network HRP are checked before copying; malformed/missing values
+  never silently generate a pool-default parent payout. The Stratum backend
+  remains the final validator. Different modes retain separate input values.
+  Parent outages may still trigger the documented native fallback at runtime.
+
+  The form initially uses the page hostname; override it when viewing locally
+  through SSH. Use your public pool hostname, for example pool.example.com.
+  The existing direct/SOLO and parent fee behavior remains unchanged.
+
+  Additional checks:
+    node --test ops/multimining/test-mining-setup.cjs
+    NODE_PATH=<directory containing playwright> \
+      node ops/multimining/check-dashboard.cjs
+  The browser test uses isolated fixtures, not running mainnet mining services.
+
+Read-only deployment checks
+  inspect_mining_templates CONFIG ZKAS_ADDRESS fetches one real template per
+  configured mode. It asserts that native remains native and that each merged
+  mode actually contains a ZKas commitment (no silent parent fallback).
+  It performs no hashing, block submission or wallet operation.
+  Build with --example inspect_mining_templates and run on the node host.
+
+  Explicit parent addresses, including Sedra and unknown/misspelled prefixes,
+  must reach payout validation rather than being treated as placeholder
+  passwords. The authorize regression test verifies the Sedra address remains
+  in the worker context. Configure POOL_FALLBACK_ADDRESS to your own ZKas address
+  before deploying: upstream otherwise uses its own default for malformed
+  child addresses. Correct miner addresses receive rewards directly.
