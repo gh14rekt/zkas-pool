@@ -11,6 +11,7 @@ pub mod merged;
 pub mod mining_state;
 pub mod net_utils;
 pub mod pow_diagnostic;
+mod dashboard_hashrate;
 pub mod prom;
 #[cfg(feature = "rkstratum_cpu_miner")]
 pub mod rkstratum_cpu_miner;
