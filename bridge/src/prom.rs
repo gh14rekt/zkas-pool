@@ -507,6 +507,21 @@ async fn handle_http_request(
         return Ok(());
     }
 
+    if request.starts_with("GET ") && path == "/api/mining" {
+        let options = WEB_MINING_CONNECTIONS.get().cloned().unwrap_or_default();
+        let options: Vec<_> = options.into_iter().filter(|entry| match mode {
+            HttpMode::Aggregated { .. } => true,
+            HttpMode::Instance { instance_id, .. } => entry.instance == *instance_id,
+        }).collect();
+        let json = serde_json::to_string(&options)?;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: {}\r\n\r\n{}",
+            json.len(), json
+        );
+        stream.write_all(response.as_bytes()).await?;
+        return Ok(());
+    }
+
     if request.starts_with("GET /api/status") {
         let kaspad_version = crate::kaspaapi::NODE_STATUS.lock().server_version.clone().unwrap_or_else(|| "-".to_string());
         let status_cfg = get_web_status_config();
@@ -882,6 +897,11 @@ struct WebStatusConfig {
 }
 
 static WEB_STATUS_CONFIG: OnceLock<parking_lot::RwLock<WebStatusConfig>> = OnceLock::new();
+static WEB_MINING_CONNECTIONS: OnceLock<Vec<crate::mining_ui::MiningConnection>> = OnceLock::new();
+
+pub fn set_web_mining_config(config: &BridgeConfig) {
+    let _ = WEB_MINING_CONNECTIONS.set(crate::mining_ui::connections(config));
+}
 static WEB_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 static WEB_CONFIG_WRITE_LOCK: OnceLock<parking_lot::Mutex<()>> = OnceLock::new();
 
@@ -1779,7 +1799,7 @@ min_share_diff: 8192
 
         set_web_status_config("127.0.0.1:16110".to_string(), 2);
 
-        let mode = HttpMode::Instance { instance_id: "0".to_string(), web_bind: "127.0.0.1:0".to_string() };
+        let mode = HttpMode::Instance { instance_id: crate::log_colors::LogColors::format_instance_id(1), web_bind: "127.0.0.1:0".to_string() };
 
         let status_resp = send_request(mode.clone(), "GET /api/status HTTP/1.1\r\n\r\n").await;
         assert!(status_resp.contains("200 OK"));
@@ -1789,6 +1809,16 @@ min_share_diff: 8192
         let stats_resp = send_request(mode.clone(), "GET /api/stats HTTP/1.1\r\n\r\n").await;
         assert!(stats_resp.contains("200 OK"));
         assert!(stats_resp.contains("application/json"));
+
+        let mining_config = BridgeConfig::from_yaml(include_str!("../../ops/multimining/devnet.example.json")).unwrap();
+        set_web_mining_config(&mining_config);
+        let mining_resp = send_request(mode.clone(), "GET /api/mining HTTP/1.1\r\n\r\n").await;
+        let mining: serde_json::Value = serde_json::from_str(mining_resp.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(mining.as_array().unwrap().len(), 1);
+        assert_eq!(mining[0]["mode"], "native");
+        let all_resp = send_request(HttpMode::Aggregated { web_bind: "127.0.0.1:0".into() }, "GET /api/mining HTTP/1.1\r\n\r\n").await;
+        let all: serde_json::Value = serde_json::from_str(all_resp.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(all.as_array().unwrap().len(), 1);
 
         let config_resp = send_request(mode.clone(), "GET /api/config HTTP/1.1\r\n\r\n").await;
         assert!(config_resp.contains("200 OK"));

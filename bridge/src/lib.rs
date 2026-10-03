@@ -37,3 +37,4 @@ pub use stratum_server::BridgeConfig as StratumServerBridgeConfig;
 pub use stratum_server::*;
 
 pub mod parent;
+pub mod mining_ui;
