@@ -287,6 +287,16 @@ pub async fn handle_authorize(
 
     tracing::debug!("[AUTHORIZE] Final parsed - address: '{}', worker: '{}', canxium: '{}'", address, worker_name, canxium_address);
 
+    if let (Some(api), Some(raw)) = (kaspa_api.as_ref(), event.params.get(1).and_then(Value::as_str)) {
+        if !is_placeholder_password(raw) {
+            if let Err(error) = api.validate_parent_payout(raw.trim()) {
+                ctx.reply(JsonRpcResponse::new(&event, Some(Value::Bool(false)), None)).await?;
+                ctx.disconnect();
+                return Err(format!("invalid parent payout: {error}").into());
+            }
+        }
+    }
+
     if let Some(ref client_handler) = client_handler {
         client_handler.prepare_worker_identity_change(&ctx);
     }
@@ -305,24 +315,15 @@ pub async fn handle_authorize(
         *ctx.canxium_addr.lock() = canxium_address.clone();
     }
 
-    // Merged mining: the stratum PASSWORD (`params[1]`) carries the miner's own
-    // `kaspa:` address, so a KAS block found on its lane pays the miner instead of
-    // the pool. Historically this field was ignored entirely.
-    //
-    // Parsed once, here, and stored as an `Address`. Jobs are rebuilt about once a
-    // second per connection, so bech32-decoding this on the job path would be pure
-    // repeated waste for a value that cannot change without a re-authorize.
-    //
-    // Same policy the ZKas address above uses: a miner is NEVER dropped for a bad
-    // value. Anything unparseable leaves `kas_payout = None`, which means "pay the
-    // pool" — the miner keeps mining and keeps earning ZKas normally. That is the
-    // forgiving choice, but it is also a silent one: a typo donates this miner's KAS
-    // to the pool indefinitely, so it is logged at WARN with the offending value.
+    // The password carries the parent-chain payout (Kaspa). Explicit
+    // addresses were checked against the port's parent/network above. Keep the
+    // validated string: ZKas's Address type does not encode other network HRPs.
+    // Conventional placeholder passwords retain the configured pool default.
     let kas_payout = parse_kas_payout(event.params.get(1).and_then(|v| v.as_str()));
     match &kas_payout {
         Some(addr) => {
             tracing::info!(
-                "[AUTHORIZE] {}:{} merged-mining KAS rewards -> {} (from password field)",
+                "[AUTHORIZE] {}:{} merged-mining parent rewards -> {} (from password field)",
                 ctx.remote_addr,
                 ctx.remote_port,
                 addr
@@ -333,7 +334,7 @@ pub async fn handle_authorize(
                 && !is_placeholder_password(raw)
             {
                 tracing::warn!(
-                    "[AUTHORIZE] {}:{} password '{}' is not a valid kaspa: address; KAS from this lane pays the POOL.                      Set the password to your kaspa: address to be paid directly.",
+                    "[AUTHORIZE] {}:{} password '{}' is not a valid parent address; parent rewards use the configured pool address",
                     ctx.remote_addr,
                     ctx.remote_port,
                     raw
@@ -486,7 +487,7 @@ fn process_canxium_address(address: &str) -> String {
 /// POOL_FALLBACK_ADDRESS env var; defaults to the ZKas pool wallet.
 fn pool_fallback_address() -> String {
     std::env::var("POOL_FALLBACK_ADDRESS")
-        .unwrap_or_else(|_| "zkas:py82h42m9qjff0knpcmllzq3c7qhurje5auh4tq2ceagf69wjpf23djwwmqr26zhsua8rrglrwdltsh".to_string())
+        .unwrap_or_else(|_| "zkas:p9pyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyyssmdvpfyna".to_string())
 }
 
 /// Passwords miners send when they mean "I have no password".
@@ -507,12 +508,11 @@ fn is_placeholder_password(raw: &str) -> bool {
 /// one of those and buried the warning that actually matters — a real address with a
 /// typo, which silently donates that miner's KAS to the pool forever.
 ///
-/// So: an attempt is something carrying an explicit `kaspa`-family prefix. Anything
-/// else is treated as "no opinion", pays the pool exactly as before this feature
-/// existed, and says nothing.
+/// An explicit address separator means a payout attempt, including Kaspa and
+/// unknown/misspelled prefixes. Invalid attempts must reach the validator instead
+/// of silently becoming a placeholder and paying the configured pool address.
 fn looks_like_payout_attempt(raw: &str) -> bool {
-    let t = raw.trim().to_ascii_lowercase();
-    t.starts_with("kaspa:") || t.starts_with("kaspatest:") || t.starts_with("kaspadev:")
+    raw.contains(':')
 }
 
 /// Read the stratum password field as the miner's KAS payout address.
@@ -527,17 +527,15 @@ fn looks_like_payout_attempt(raw: &str) -> bool {
 ///
 /// Some miners send `address:worker` or `address.worker` in the password; the address
 /// is taken as the leading token so those still work.
-fn parse_kas_payout(raw: Option<&str>) -> Option<Address> {
+fn parse_kas_payout(raw: Option<&str>) -> Option<String> {
     let raw = raw?.trim();
     if is_placeholder_password(raw) {
         return None;
     }
     // Tolerate a trailing worker/difficulty suffix, but never invent a prefix.
     let candidate = raw.split([',', ' ']).next().unwrap_or(raw).trim();
-    if !(candidate.starts_with("kaspa:") || candidate.starts_with("kaspatest:") || candidate.starts_with("kaspadev:")) {
-        return None;
-    }
-    Address::try_from(candidate).ok()
+    crate::parent::validate_address(candidate).ok()?;
+    Some(candidate.to_owned())
 }
 
 /// Coerce a stratum username into a validated payout address.
@@ -647,8 +645,26 @@ mod wallet_coercion_tests {
 
     // Structurally valid, synthetic. ZKas shielded payloads are 79 chars,
     // Kaspa's are 61 -- the length gap is what the old regex tripped over.
-    const ZKAS: &str = "zkas:pyxpxx3p9qhnv02yfdf9jcr8de6hequ2jxvflf4dkjau9jws6l0wtm8nlgrq69qmyg5nqdc4tz0wpku";
-    const KASPA: &str = "kaspa:qqvp7f3dxsa5yj2s2a0x2mrn02qc3ruknkj2hv4ecrrua4wuu040z995jlg26";
+    const ZKAS: &str = "zkas:p9pyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyyssmdvpfyna";
+    const KASPA: &str = "kaspa:qqjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgtturx5zd";
+
+    #[test]
+    fn parent_payout_is_not_a_placeholder_and_survives_parsing() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../../ops/multimining/devnet.example.json")).unwrap();
+        for instance in config["instances"].as_array().unwrap().iter().skip(1) {
+            let address = instance["parent"]["payout_address"].as_str().unwrap();
+            assert!(!is_placeholder_password(address));
+            assert_eq!(parse_kas_payout(Some(address)).as_deref(), Some(address));
+        }
+        for invalid in ["kaspa:invalid", "kaspatest:invalid", "kaspadev:invalid", "kaspasim:invalid", "wrongprefix:invalid"] {
+            assert!(!is_placeholder_password(invalid), "{invalid} must be validated and rejected, never defaulted");
+            assert!(parse_kas_payout(Some(invalid)).is_none());
+        }
+        for placeholder in ["", "x", "*", "(null)", "d=8192", "m=solo"] {
+            assert!(is_placeholder_password(placeholder));
+            assert!(parse_kas_payout(Some(placeholder)).is_none());
+        }
+    }
 
     #[test]
     fn a_zkas_address_survives_intact() {
@@ -717,8 +733,23 @@ mod protocol_wire_tests {
     }
 
     #[tokio::test]
+    async fn authorize_retains_parent_payout_in_worker_context() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../../ops/multimining/devnet.example.json")).unwrap();
+        let address = config["instances"][1]["parent"]["payout_address"].as_str().unwrap();
+        let (context, mut peer) = context_with_peer(5556).await;
+        let request = JsonRpcEvent::new(Some("2".to_owned()), "mining.authorize", vec![
+            json!("zkas:p9pyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyyssmdvpfyna.test"),
+            json!(address),
+        ]);
+        handle_authorize(context.clone(), request, None, None).await.unwrap();
+        assert_eq!(read_json_line(&mut peer).await["result"], json!(true));
+        assert_eq!(context.kas_payout.lock().as_deref(), Some(address));
+    }
+
+    #[tokio::test]
     async fn rental_login_validates_payout_and_returns_session_then_nonce() {
-        let address = "kaspa:qqjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgtturx5zd";
+        let config: serde_json::Value = serde_json::from_str(include_str!("../../ops/multimining/devnet.example.json")).unwrap();
+        let address = config["instances"][1]["parent"]["payout_address"].as_str().unwrap();
         let handler = Arc::new(ClientHandler::new(Arc::new(ShareHandler::new("login-test".into())), 524288.0, HashMap::new(), 1, "login-test".into()));
         let (ctx, mut peer) = context_with_peer(5556).await;
         let request = crate::jsonrpc_event::unmarshal_event(&json!({"id":1,"jsonrpc":"2.0","method":"login","params":{
@@ -735,7 +766,7 @@ mod protocol_wire_tests {
         assert_eq!(nonce["method"], "mining.set_extranonce");
         assert_eq!(nonce["params"][0].as_str().unwrap().len(), 2);
         assert_eq!(nonce["params"][1], 7);
-        assert_eq!(ctx.kas_payout.lock().as_ref().map(|a| a.to_string()).as_deref(), Some(address));
+        assert_eq!(ctx.kas_payout.lock().as_deref(), Some(address));
         assert_eq!(&*ctx.remote_app.lock(), "lazypickaxe.com");
     }
 

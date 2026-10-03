@@ -206,8 +206,8 @@ async fn main() -> Result<(), anyhow::Error> {
     // Provide web/prom status endpoints with the *actual* effective config (after CLI overrides),
     // instead of having the server re-read `config.yaml` from disk.
     // This is best-effort and does not affect any mining logic.
-    kaspa_stratum_bridge::prom::set_web_mining_config(&config);
     prom::set_web_status_config(config.global.kaspad_address.clone(), config.instances.len());
+    prom::set_web_mining_config(&config);
     // Point the web config endpoint at the actual config file path the bridge is using.
     let loaded_config_path = CONFIG_LOADED_FROM.get().and_then(|p| p.as_ref()).cloned().unwrap_or_else(|| requested_config.clone());
     prom::set_web_config_path(loaded_config_path);
@@ -409,8 +409,21 @@ async fn main() -> Result<(), anyhow::Error> {
         let instance_num = idx + 1;
         let instance = instance_config.clone();
         let global = config.global.clone();
-        let kaspa_api_clone = if instance.mining_mode == Some(kaspa_stratum_bridge::parent::MiningMode::Native) {
-            KaspaApi::new_native(global.kaspad_address.clone(), global.coinbase_tag_suffix.clone(), shutdown_rx.clone(), None).await?
+        let kaspa_api_clone = if let Some(mode) = instance.mining_mode {
+            use kaspa_stratum_bridge::parent::MiningMode;
+            let parent = match mode {
+                MiningMode::Native => {
+                    anyhow::ensure!(instance.parent.is_none(), "native port must not configure a parent");
+                    None
+                }
+                _ => {
+                    let parent = instance.parent.clone().ok_or_else(|| anyhow::anyhow!("merged port requires parent configuration"))?;
+                    anyhow::ensure!(parent.kind == mode, "port mode and parent kind disagree");
+                    parent.validate()?;
+                    Some(parent)
+                }
+            };
+            KaspaApi::new_with_parent(global.kaspad_address.clone(), global.coinbase_tag_suffix.clone(), shutdown_rx.clone(), None, parent).await?
         } else { Arc::clone(&kaspa_api) };
         let instance_shutdown_rx = shutdown_rx.clone();
 
