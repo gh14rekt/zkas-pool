@@ -1,0 +1,80 @@
+PUBLICATION BRANCHES AND REVIEW ORDER
+
+Upstream base: firecash/zkas-pool main
+  f4c251038ed5ba29f1626238402f3387baadfcb9
+
+Preferred upstream candidate
+  pr/upstream-native-lowdiff-ui
+  Native ZKas, low-difficulty parent target handling, native/Kaspa dashboard
+  settings and isolated browser tests. No additional parent-chain integration.
+  The changes are separate commits, suitable for staged review.
+
+Native and existing-parent review sequence (base -> topic branch)
+  upstream main -> pr/native-mining
+    Native templates and genuine native fallback; per-port mode isolation.
+    Includes the missing standalone extranonce configuration forwarding needed
+    to build the binary and pins the existing official node dependencies.
+  pr/native-mining -> pr/low-difficulty-parent
+    Chain-independent share target correction, including fractional difficulty.
+  pr/low-difficulty-parent -> pr/frontend-native
+    Read-only native connection metadata and native settings generator.
+  pr/frontend-native -> pr/frontend-kaspa-upstream
+    Existing Kaspa parent receiving address and port selection.
+  pr/frontend-kaspa-upstream -> pr/frontend-kaspa-tests
+    Browser integration tests using synthetic fixtures only.
+  pr/upstream-native-lowdiff-ui points to the last branch in this sequence.
+
+Alternative-parent work, kept separate from the preferred upstream candidate
+  pr/low-difficulty-parent -> pr/sedra-parent
+    Raw parent transport, independent parent network/payout validation,
+    per-instance parent configuration and private-development CPU probes.
+  pr/sedra-parent -> pr/frontend-native-full
+    Same native UI topic applied to the alternative-parent backend.
+  pr/frontend-native-full -> pr/frontend-kaspa
+    Kaspa UI using explicit per-instance parent configuration.
+  pr/frontend-kaspa -> pr/frontend-sedra
+    Additional parent UI, network validation and three-mode browser fixtures.
+
+Rental protocol sequence, based on the preferred upstream candidate
+  pr/upstream-native-lowdiff-ui -> pr/stratum-rpc-envelope
+    Explicit JSON-RPC v1 result/error response fields.
+  pr/stratum-rpc-envelope -> pr/stratum-tls-probes
+    Prompt rejection of TLS probes on plaintext Stratum listeners.
+  pr/stratum-tls-probes -> pr/stratum-nicehash
+    Stratum v1 notifications for NiceHash rental proxies.
+  pr/stratum-nicehash -> pr/stratum-rental-login
+    xmrig-style rental login through the ordinary payout authorization path.
+  pr/stratum-rental-login -> pr/stratum-rental-notify
+    Correct job notification envelope for those rental clients.
+  feat/stratum-rental-compat combines this sequence without the additional parent.
+
+Complete integration
+  feat/multimining combines native, low-difficulty targets, alternative-parent
+  backend/frontend, rental fixes and operator/test documentation.
+  pr/multimining-docs isolates the last documentation topic on the complete stack.
+  This branch intentionally retains the additional-parent direction for future work.
+
+Submitting separate PRs
+  Compare each topic with the base listed above to review only that topic.
+  For a PR to upstream main, first merge the listed prerequisite topics or
+  cherry-pick the topic commits onto a branch containing those prerequisites.
+  Comparing a stacked branch directly with upstream main includes its prerequisites.
+  No upstream PR is created automatically by this publication.
+
+Validation
+  Native backend: 200 Rust tests passed, 1 existing ignored test.
+  Native + low-difficulty + native UI: 202 passed, 1 existing ignored test.
+  Preferred upstream candidate: 202 passed, 1 existing ignored test;
+    Node unit tests and native/Kaspa browser integration passed.
+  Rental-compatible upstream variant: 207 passed, 1 existing ignored test.
+  Alternative-parent backend: 203 passed, 1 existing ignored test.
+  Complete integration: 210 passed, 1 existing ignored test;
+    Node unit tests and three-mode browser integration passed.
+
+Publication hygiene
+  All new commits use the GitHub author's noreply identity.
+  Hostnames are examples, test addresses are synthetic encodings, and example
+  ports are independent of any deployment. Node/wallet secrets, live payout
+  addresses, local paths, private configurations and mining logs are excluded.
+  Private test block identifiers are excluded from the validation summary.
+  Original local commits are not ancestors of the published feature branches.
