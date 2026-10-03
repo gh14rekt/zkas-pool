@@ -83,6 +83,26 @@
   </nav>
 
   <div class="container mx-auto px-4 py-8">
+    <section class="bg-surface-1 rounded-lg p-6 border border-card mb-8" aria-labelledby="miningSetupTitle">
+      <h2 id="miningSetupTitle" class="text-lg font-semibold kaspa-primary mb-3">Mining setup</h2>
+      <p class="text-sm text-gray-300 mb-4">Choose a mode and your receiving addresses, then copy the connection settings to your ASIC or miner. Each mode uses its own port.</p>
+      <form id="miningSetup" class="grid grid-cols-1 md:grid-cols-2 gap-4" autocomplete="off">
+        <label>Mining mode<select id="miningMode" disabled class="block w-full p-2 bg-surface-2 border border-card rounded-lg"><option>Loading ports…</option></select></label>
+        <label>Pool hostname<input id="miningHost" name="host" class="block w-full p-2 bg-surface-2 border border-card rounded-lg" spellcheck="false"></label>
+        <label>ZKas receiving address<input name="zkas" placeholder="zkas:…" class="block w-full p-2 bg-surface-2 border border-card rounded-lg" spellcheck="false"></label>
+        <label>Worker name (optional)<input name="worker" placeholder="asic1" maxlength="64" class="block w-full p-2 bg-surface-2 border border-card rounded-lg" spellcheck="false"></label>
+      </form>
+      <p id="parentNetwork" class="text-xs text-gray-400 mt-2"></p>
+      <p class="text-xs text-gray-400 mt-2">Direct/SOLO mining: rewards go to the configured receiving addresses when a block is found. Enter public addresses only.</p>
+      <p id="miningSetupError" role="status" aria-live="polite" class="text-sm text-gray-300 mt-3"></p>
+      <div id="miningCredentials" hidden class="mt-4 bg-surface-2 border border-card rounded-lg p-4 space-y-2 text-sm">
+        <div>URL: <code id="miningUrl" class="break-all select-all"></code></div>
+        <div>Worker / username: <code id="miningUsername" class="break-all select-all"></code></div>
+        <div>Password: <code id="miningPassword" class="break-all select-all"></code></div>
+      </div>
+      <button id="miningCopy" type="button" disabled class="mt-3 bg-kaspa-primary hover-bg-kaspa-primary px-4 py-2 rounded-lg text-sm font-medium text-white">Copy connection settings</button>
+    </section>
+
     <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start mb-8">
       <div class="xl:col-span-6 space-y-6">
         <div class="bg-surface-1 rounded-lg p-6 border border-card">
@@ -287,6 +307,7 @@
   </div>
 
   <script src="static/js/dashboard.js"></script>
+  <script src="static/js/mining-setup.js"></script>
 
   <div id="toast" class="hidden fixed right-4 top-4 z-50 bg-surface-1 border border-card px-4 py-2 rounded-lg text-sm text-white"></div>
 </body>

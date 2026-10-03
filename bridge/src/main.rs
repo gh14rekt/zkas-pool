@@ -206,6 +206,7 @@ async fn main() -> Result<(), anyhow::Error> {
     // Provide web/prom status endpoints with the *actual* effective config (after CLI overrides),
     // instead of having the server re-read `config.yaml` from disk.
     // This is best-effort and does not affect any mining logic.
+    kaspa_stratum_bridge::prom::set_web_mining_config(&config);
     prom::set_web_status_config(config.global.kaspad_address.clone(), config.instances.len());
     // Point the web config endpoint at the actual config file path the bridge is using.
     let loaded_config_path = CONFIG_LOADED_FROM.get().and_then(|p| p.as_ref()).cloned().unwrap_or_else(|| requested_config.clone());
