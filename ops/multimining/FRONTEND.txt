@@ -16,3 +16,8 @@ Read the pool's existing payout policy before mining; malformed backend payout
 attempts can retain the upstream fallback behavior.
 
 Tests: node --test ops/multimining/test-mining-setup.cjs
+
+Browser checks (Playwright and its Chromium browser required):
+  NODE_PATH=<playwright node_modules directory> \
+    node ops/multimining/check-dashboard.cjs
+The browser test serves synthetic fixtures on a temporary loopback port.
