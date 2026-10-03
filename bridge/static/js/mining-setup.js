@@ -1,7 +1,7 @@
 /* Connection generator only: never changes the pool or submits a transaction. */
 (() => {
   'use strict';
-  const labels = {native: 'ZKas — native', kaspa: 'Kaspa + ZKas'};
+  const labels = {native: 'ZKas — native', kaspa: 'Kaspa + ZKas', sedra: 'Sedra + ZKas'};
   const alphabet = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
   function address(raw, prefixes, shielded = false) {
     const value = raw.trim();
@@ -64,6 +64,7 @@
   function render() {
     const option = options[Number(select.value)];
     document.getElementById('kaspaPayoutField').hidden = option?.mode !== 'kaspa';
+    document.getElementById('sedraPayoutField').hidden = option?.mode !== 'sedra';
     document.getElementById('miningMergeNote').hidden = !option || option.mode === 'native';
     document.getElementById('parentNetwork').textContent = option?.parentPrefix ? `Payout network: ${option.parentPrefix}:` : '';
     result = null; output.hidden = true; copy.disabled = true;

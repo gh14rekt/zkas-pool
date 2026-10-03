@@ -20,7 +20,6 @@ pub fn connections(config: &BridgeConfig) -> Vec<MiningConnection> {
             // Legacy env-based modes are not reliably known here. Do not advertise
             // them as native or guess a payout network.
             let mode = instance.mining_mode?;
-            if mode == MiningMode::Sedra { return None; }
             let port = instance.stratum_port.rsplit(':').next()?.parse::<u16>().ok()?;
             if port == 0 {
                 return None;
@@ -48,14 +47,15 @@ mod tests {
     fn publishes_effective_ports_and_parent_network_without_private_config() {
         let config = BridgeConfig::from_yaml(include_str!("../../ops/multimining/devnet.example.json")).unwrap();
         let options = connections(&config);
-        assert_eq!(options.len(), 2);
+        assert_eq!(options.len(), 3);
         assert_eq!(options[0].instance, "[Instance 1]");
         assert_eq!(options[0].mode, MiningMode::Native);
         assert_eq!(options[1].parent_prefix.as_deref(), Some("kaspadev"));
+        assert_eq!(options[2].parent_prefix.as_deref(), Some("sedradev"));
         let json = serde_json::to_string(&options).unwrap();
         assert!(!json.contains("endpoint"));
         assert!(!json.contains("payout_address"));
-        assert_eq!(options[1].port, 5556);
+        assert_eq!(options[2].port, 5557);
     }
 
     #[test]
