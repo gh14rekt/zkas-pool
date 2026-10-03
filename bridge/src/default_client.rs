@@ -215,6 +215,14 @@ pub async fn handle_authorize(
     client_handler: Option<Arc<crate::client_handler::ClientHandler>>,
     kaspa_api: Option<Arc<dyn crate::share_handler::KaspaApiTrait + Send + Sync>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let rental_login = event.method == "login";
+    if rental_login {
+        let agent = event.params.get(2).and_then(Value::as_str).unwrap_or("rental-login");
+        *ctx.remote_app.lock() = agent.to_string();
+        if let Some(ref handler) = client_handler {
+            handler.assign_extranonce_for_miner(&ctx, agent);
+        }
+    }
     tracing::debug!("[AUTHORIZE] ===== AUTHORIZE REQUEST FROM {} =====", ctx.remote_addr);
     tracing::debug!("[AUTHORIZE] Event ID: {:?}", event.id);
     tracing::debug!("[AUTHORIZE] Params count: {}", event.params.len());
@@ -371,7 +379,12 @@ pub async fn handle_authorize(
         });
     }
 
-    let response = JsonRpcResponse::new(&event, Some(Value::Bool(true)), None);
+    let result = if rental_login {
+        serde_json::json!({"id": ctx.session_uid().to_string(), "job": null, "status": "OK"})
+    } else {
+        Value::Bool(true)
+    };
+    let response = JsonRpcResponse::new(&event, Some(result), None);
     let response_json = serde_json::to_string(&response).unwrap_or_else(|_| "failed".to_string());
     tracing::debug!("[AUTHORIZE] Sending authorize response to {}: {}", ctx.remote_addr, response_json);
 
@@ -399,10 +412,10 @@ pub async fn handle_authorize(
         remote_app_lower.contains("godminer") || remote_app_lower.contains("bitmain") || remote_app_lower.contains("antminer");
     let is_iceriver =
         remote_app_lower.contains("iceriver") || remote_app_lower.contains("icemining") || remote_app_lower.contains("icm");
-    if !extranonce.is_empty() && !is_bitmain && !is_iceriver && !kaspa_common_protocol {
+    if !extranonce.is_empty() && !is_bitmain && !is_iceriver && (!kaspa_common_protocol || rental_login) {
         tracing::debug!("[AUTHORIZE] Step 2: Sending extranonce to client {} before difficulty/job", ctx.remote_addr);
         tracing::debug!("[AUTHORIZE] Extranonce value: '{}'", extranonce);
-        send_extranonce(ctx.clone(), client_handler.as_ref().is_some_and(|h| h.extranonce_with_size())).await?;
+        send_extranonce(ctx.clone(), rental_login || client_handler.as_ref().is_some_and(|h| h.extranonce_with_size())).await?;
         tracing::debug!("[AUTHORIZE] Extranonce sent successfully to client {}", ctx.remote_addr);
     } else {
         tracing::debug!("[AUTHORIZE] No extranonce step (empty or bitmain; bitmain gets it via subscribe response)");
@@ -731,6 +744,30 @@ mod protocol_wire_tests {
         handle_authorize(context.clone(), request, None, None).await.unwrap();
         assert_eq!(read_json_line(&mut peer).await["result"], json!(true));
         assert_eq!(context.kas_payout.lock().as_deref(), Some(address));
+    }
+
+    #[tokio::test]
+    async fn rental_login_validates_payout_and_returns_session_then_nonce() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../../ops/multimining/devnet.example.json")).unwrap();
+        let address = config["instances"][1]["parent"]["payout_address"].as_str().unwrap();
+        let handler = Arc::new(ClientHandler::new(Arc::new(ShareHandler::new("login-test".into())), 524288.0, HashMap::new(), 1, "login-test".into()));
+        let (ctx, mut peer) = context_with_peer(5556).await;
+        let request = crate::jsonrpc_event::unmarshal_event(&json!({"id":1,"jsonrpc":"2.0","method":"login","params":{
+            "login":"zkas:p9pyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyyssmdvpfyna.test",
+            "pass":address,"agent":"lazypickaxe.com"
+        }}).to_string()).unwrap();
+        handle_authorize(ctx.clone(), request, Some(handler), None).await.unwrap();
+        let reply = read_json_line(&mut peer).await;
+        assert_eq!(reply["id"], 1);
+        assert_eq!(reply["result"]["status"], "OK");
+        assert_eq!(reply["result"]["id"], ctx.session_uid().to_string());
+        assert!(reply["result"]["job"].is_null());
+        let nonce = read_json_line(&mut peer).await;
+        assert_eq!(nonce["method"], "mining.set_extranonce");
+        assert_eq!(nonce["params"][0].as_str().unwrap().len(), 2);
+        assert_eq!(nonce["params"][1], 7);
+        assert_eq!(ctx.kas_payout.lock().as_deref(), Some(address));
+        assert_eq!(&*ctx.remote_app.lock(), "lazypickaxe.com");
     }
 
     #[tokio::test]
