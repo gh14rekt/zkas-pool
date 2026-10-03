@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use katpool_domain::{CorrelationId, PoolEvent, WalletAddress, WorkerName};
 use num_bigint::BigUint;
 use num_traits::Zero;
+use crate::hasher::cap_share_difficulty;
 use parking_lot::Mutex;
 use regex::Regex;
 use std::collections::HashMap;
@@ -581,7 +582,9 @@ impl ClientHandler {
             };
 
             // Calculate target
-            let big_diff = calculate_target(block.header.bits as u64);
+            let parent_target = calculate_target(block.header.bits as u64);
+            let easiest_target = kaspa_api_clone.merged_fc_target(&block).map(|t| t.max(parent_target.clone())).unwrap_or(parent_target);
+            let big_diff = easiest_target.clone();
             state.set_big_diff(big_diff);
 
             // Serialize header - now returns Hash type directly
@@ -608,15 +611,6 @@ impl ClientHandler {
             // Create Job struct with both block and pre_pow_hash
             let job = Job { block: block.clone(), pre_pow_hash };
 
-            // Add job
-            let job_id = state.add_job(job);
-            let counter_after = state.current_job_counter();
-            let stored_ids = state.get_stored_job_ids();
-            debug!(
-                "[JOB CREATION] send_immediate_job: created job ID {} for client {} (counter: {}, stored IDs: {:?})",
-                job_id, client_clone.remote_addr, counter_after, stored_ids
-            );
-
             // Initialize state if first time
             if !state.is_initialized() {
                 state.set_initialized(true);
@@ -642,6 +636,11 @@ impl ClientHandler {
                     target_bytes.len() * 8
                 );
             }
+
+            let mut difficulty = state.stratum_diff().expect("initialized difficulty");
+            difficulty.set_diff_value(cap_share_difficulty(difficulty.diff_value, &easiest_target));
+            state.set_stratum_diff(difficulty);
+            let job_id = state.add_job(job);
 
             // CRITICAL: Always send difficulty to each client (IceRiver expects this on every connection)
             // Even if state is already initialized, we need to send difficulty to this specific client
@@ -895,7 +894,9 @@ impl ClientHandler {
                 };
 
                 // Calculate target
-                let big_diff = calculate_target(block.header.bits as u64);
+                let parent_target = calculate_target(block.header.bits as u64);
+            let easiest_target = kaspa_api_clone.merged_fc_target(&block).map(|t| t.max(parent_target.clone())).unwrap_or(parent_target);
+            let big_diff = easiest_target.clone();
                 state.set_big_diff(big_diff);
 
                 // Serialize header - now returns Hash type directly
@@ -925,16 +926,7 @@ impl ClientHandler {
                 // Create Job struct with both block and pre_pow_hash
                 let job = Job { block: block.clone(), pre_pow_hash };
 
-                // Add job
-                let job_id = state.add_job(job);
-                let counter_after = state.current_job_counter();
-                let stored_ids = state.get_stored_job_ids();
-                debug!(
-                    "[JOB CREATION] new_block_available: created job ID {} for client {} (counter: {}, stored IDs: {:?})",
-                    job_id, client_clone.remote_addr, counter_after, stored_ids
-                );
-
-                let initial_diff = share_handler.register_client_vardiff(&client_clone, min_diff);
+                let initial_diff = cap_share_difficulty(share_handler.register_client_vardiff(&client_clone, min_diff), &easiest_target);
 
                 // Initialize state if first time (per-client state initialization)
                 if !state.is_initialized() {
@@ -968,7 +960,7 @@ impl ClientHandler {
                     // Check for vardiff update
                     if let Some(mut stratum_diff) = state.stratum_diff() {
                         let current_diff = stratum_diff.diff_value;
-                        let mut var_diff = share_handler.get_client_vardiff(&client_clone);
+                        let mut var_diff = cap_share_difficulty(share_handler.get_client_vardiff(&client_clone), &easiest_target);
 
                         // Recover from stale/recreated stats entries that can report 0.0 diff.
                         // Seed back to current state diff so UI/terminal does not stick at zero.
@@ -994,6 +986,15 @@ impl ClientHandler {
                         }
                     }
                 }
+
+                let mut difficulty = state.stratum_diff().expect("initialized difficulty");
+                let capped = cap_share_difficulty(difficulty.diff_value, &easiest_target);
+                if capped != difficulty.diff_value {
+                    difficulty.set_diff_value(capped);
+                    state.set_stratum_diff(difficulty);
+                    if send_client_diff(&instance_id, &client_clone, capped).await.is_err() { return; }
+                }
+                let job_id = state.add_job(job);
 
                 // Build job params
                 // Check if this is an IceRiver or Bitmain miner - they need single hex string format
@@ -1175,6 +1176,16 @@ impl ClientHandler {
                         return;
                     }
                 };
+                let parent_target = calculate_target(parent.header.bits as u64);
+                let easiest = kaspa_api.merged_fc_target(&parent).map(|t| t.max(parent_target.clone())).unwrap_or(parent_target);
+                if let Some(mut difficulty) = state.stratum_diff() {
+                    let capped = cap_share_difficulty(difficulty.diff_value, &easiest);
+                    if capped != difficulty.diff_value {
+                        difficulty.set_diff_value(capped);
+                        state.set_stratum_diff(difficulty);
+                        if send_client_diff(&instance_id, &client, capped).await.is_err() { return; }
+                    }
+                }
                 let job_id = state.add_job(Job { block: parent.clone(), pre_pow_hash });
                 let remote_app = client.remote_app.lock().clone();
                 let remote_app_lower = remote_app.to_ascii_lowercase();

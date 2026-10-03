@@ -463,8 +463,8 @@ impl ShareHandler {
     pub fn register_client_vardiff(&self, ctx: &StratumContext, seed: f64) -> f64 {
         let stats = self.get_create_stats(ctx);
         let mut current = stats.min_diff.lock();
-        if !current.is_finite() || *current < VARDIFF_MIN_DIFF {
-            *current = seed.max(VARDIFF_MIN_DIFF);
+        if !current.is_finite() || *current <= 0.0 {
+            *current = if seed.is_finite() && seed > 0.0 { seed } else { VARDIFF_MIN_DIFF };
         }
         let restored = *current;
         drop(current);
