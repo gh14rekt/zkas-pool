@@ -1818,7 +1818,8 @@ min_share_diff: 8192
         assert_eq!(mining[0]["mode"], "native");
         let all_resp = send_request(HttpMode::Aggregated { web_bind: "127.0.0.1:0".into() }, "GET /api/mining HTTP/1.1\r\n\r\n").await;
         let all: serde_json::Value = serde_json::from_str(all_resp.split_once("\r\n\r\n").unwrap().1).unwrap();
-        assert_eq!(all.as_array().unwrap().len(), 1);
+        assert_eq!(all.as_array().unwrap().len(), 2);
+        assert_eq!(all[1]["parentPrefix"], "kaspadev");
 
         let config_resp = send_request(mode.clone(), "GET /api/config HTTP/1.1\r\n\r\n").await;
         assert!(config_resp.contains("200 OK"));
