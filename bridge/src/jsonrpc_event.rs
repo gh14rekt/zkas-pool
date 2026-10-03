@@ -85,9 +85,9 @@ pub struct JsonRpcResponse {
     /// ID can be null, string, or number
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Stratum uses the JSON-RPC v1 envelope: success includes error:null,
+    // failure includes result:null. Strict pool checkers require both keys.
     pub error: Option<Vec<Value>>,
 }
 
@@ -160,4 +160,22 @@ pub fn unmarshal_event(input: &str) -> Result<JsonRpcEvent, serde_json::Error> {
 /// Unmarshal a JSON-RPC response from a string
 pub fn unmarshal_response(input: &str) -> Result<JsonRpcResponse, serde_json::Error> {
     serde_json::from_str(input)
+}
+
+#[cfg(test)]
+mod response_envelope_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn stratum_success_and_failure_keep_both_result_and_error_keys() {
+        let success = JsonRpcResponse::success(Some(json!(1)), json!([true, "EthereumStratum/1.0.0"]));
+        assert_eq!(serde_json::to_value(success).unwrap(), json!({
+            "id": 1, "result": [true, "EthereumStratum/1.0.0"], "error": null
+        }));
+        let failure = JsonRpcResponse::error(Some(json!(2)), 20, "Rejected", None);
+        assert_eq!(serde_json::to_value(failure).unwrap(), json!({
+            "id": 2, "result": null, "error": [20, "Rejected", null]
+        }));
+    }
 }
