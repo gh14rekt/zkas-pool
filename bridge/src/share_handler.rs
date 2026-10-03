@@ -906,13 +906,8 @@ impl ShareHandler {
                 let transactions_vec = current_job.block.transactions.iter().cloned().collect();
                 let block = Block::from_arcs(Arc::new(header_clone), Arc::new(transactions_vec));
 
-                let (parent_outcome, claimed_zkas) = submit_parent_then_claim_zkas(
-                    kaspa_api.as_ref(),
-                    &block,
-                    &current_job.block,
-                    meets_network_target,
-                )
-                .await;
+                let (parent_outcome, claimed_zkas) =
+                    submit_parent_then_claim_zkas(kaspa_api.as_ref(), &block, &current_job.block, meets_network_target).await;
                 // Who the KAS actually minted to, taken from the lane's recorded
                 // truth rather than re-derived: the miner set no `kaspa:` address,
                 // or this was its pool-fee minute.
@@ -2013,7 +2008,9 @@ fn format_hashrate(ghs: f64) -> String {
 // Trait for kaspa API operations
 #[async_trait::async_trait]
 pub trait KaspaApiTrait: Send + Sync {
-    fn validate_parent_payout(&self, _address: &str) -> Result<(), String> { Ok(()) }
+    fn validate_parent_payout(&self, _address: &str) -> Result<(), String> {
+        Ok(())
+    }
     async fn get_block_template(
         &self,
         wallet_addr: &str,

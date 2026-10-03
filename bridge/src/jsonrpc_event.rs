@@ -141,7 +141,9 @@ pub fn unmarshal_event(input: &str) -> Result<JsonRpcEvent, serde_json::Error> {
         // all other methods retain their array-only parameter contract.
         if value["method"] == "login" && value["params"].is_object() {
             let params = &value["params"];
-            let login = params["login"].as_str().ok_or_else(|| <serde_json::Error as serde::de::Error>::custom("login requires string login"))?;
+            let login = params["login"]
+                .as_str()
+                .ok_or_else(|| <serde_json::Error as serde::de::Error>::custom("login requires string login"))?;
             let password = params.get("pass").cloned().unwrap_or(Value::String("x".into()));
             let agent = params.get("agent").cloned().unwrap_or(Value::String("rental-login".into()));
             if !password.is_string() || !agent.is_string() {
@@ -186,7 +188,10 @@ mod response_envelope_tests {
 
     #[test]
     fn rental_login_normalizes_only_valid_login_objects() {
-        let event = unmarshal_event(r#"{"id":1,"method":"login","params":{"login":"wallet.worker","pass":"parent","agent":"lazypickaxe.com"}}"#).unwrap();
+        let event = unmarshal_event(
+            r#"{"id":1,"method":"login","params":{"login":"wallet.worker","pass":"parent","agent":"lazypickaxe.com"}}"#,
+        )
+        .unwrap();
         assert_eq!(event.params, vec![json!("wallet.worker"), json!("parent"), json!("lazypickaxe.com")]);
         assert!(unmarshal_event(r#"{"id":1,"method":"login","params":{"agent":"x"}}"#).is_err());
         assert!(unmarshal_event(r#"{"id":1,"method":"login","params":{"login":"x","pass":4}}"#).is_err());
@@ -196,12 +201,18 @@ mod response_envelope_tests {
     #[test]
     fn stratum_success_and_failure_keep_both_result_and_error_keys() {
         let success = JsonRpcResponse::success(Some(json!(1)), json!([true, "EthereumStratum/1.0.0"]));
-        assert_eq!(serde_json::to_value(success).unwrap(), json!({
-            "id": 1, "result": [true, "EthereumStratum/1.0.0"], "error": null
-        }));
+        assert_eq!(
+            serde_json::to_value(success).unwrap(),
+            json!({
+                "id": 1, "result": [true, "EthereumStratum/1.0.0"], "error": null
+            })
+        );
         let failure = JsonRpcResponse::error(Some(json!(2)), 20, "Rejected", None);
-        assert_eq!(serde_json::to_value(failure).unwrap(), json!({
-            "id": 2, "result": null, "error": [20, "Rejected", null]
-        }));
+        assert_eq!(
+            serde_json::to_value(failure).unwrap(),
+            json!({
+                "id": 2, "result": null, "error": [20, "Rejected", null]
+            })
+        );
     }
 }

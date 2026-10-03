@@ -1,3 +1,4 @@
+use crate::hasher::cap_share_difficulty;
 use crate::{
     hasher::{calculate_target, generate_iceriver_job_params, generate_job_header, generate_large_job_params, serialize_block_header},
     jsonrpc_event::JsonRpcEvent,
@@ -10,7 +11,6 @@ use chrono::{DateTime, Utc};
 use katpool_domain::{CorrelationId, PoolEvent, WalletAddress, WorkerName};
 use num_bigint::BigUint;
 use num_traits::Zero;
-use crate::hasher::cap_share_difficulty;
 use parking_lot::Mutex;
 use regex::Regex;
 use std::collections::HashMap;
@@ -50,8 +50,7 @@ const CLIENT_TIMEOUT: Duration = Duration::from_secs(20);
 /// re-issues prefixes it has already handed to connected miners and puts two rigs
 /// on the same nonce space. Keeping one counter per width makes each port's
 /// rotation independent, so adding a narrow port cannot disturb a wide one.
-static NEXT_EXTRANONCE: [AtomicI32; 4] =
-    [AtomicI32::new(0), AtomicI32::new(0), AtomicI32::new(0), AtomicI32::new(0)];
+static NEXT_EXTRANONCE: [AtomicI32; 4] = [AtomicI32::new(0), AtomicI32::new(0), AtomicI32::new(0), AtomicI32::new(0)];
 
 /// Hand out the next nonce prefix of `width` bytes.
 ///
@@ -349,8 +348,7 @@ impl ClientHandler {
         // left to split across the rigs behind it, and no config value could express
         // that. The default is still 2, so every existing port keeps its behaviour.
         let configured_extranonce_size = self.extranonce_size.clamp(0, 3);
-        let required_extranonce_size =
-            if is_bitmain && !bitmain_extranonce_enabled { 0 } else { configured_extranonce_size };
+        let required_extranonce_size = if is_bitmain && !bitmain_extranonce_enabled { 0 } else { configured_extranonce_size };
 
         let extranonce = if required_extranonce_size > 0 {
             let (extranonce_str, extranonce_val, wrapped) = next_extranonce_prefix(required_extranonce_size as u8);
@@ -510,7 +508,15 @@ impl ClientHandler {
             let kas_payout = client_clone.kas_payout.lock().clone();
             let lane_id = client_clone.session_uid();
             let template_result = kaspa_api_clone
-                .get_block_template(&wallet_addr, &remote_app, &canxium_addr, client_clone.session_uid(), generation, kas_payout, lane_id)
+                .get_block_template(
+                    &wallet_addr,
+                    &remote_app,
+                    &canxium_addr,
+                    client_clone.session_uid(),
+                    generation,
+                    kas_payout,
+                    lane_id,
+                )
                 .await;
 
             let block = match template_result {
@@ -583,7 +589,8 @@ impl ClientHandler {
 
             // Calculate target
             let parent_target = calculate_target(block.header.bits as u64);
-            let easiest_target = kaspa_api_clone.merged_fc_target(&block).map(|t| t.max(parent_target.clone())).unwrap_or(parent_target);
+            let easiest_target =
+                kaspa_api_clone.merged_fc_target(&block).map(|t| t.max(parent_target.clone())).unwrap_or(parent_target);
             let big_diff = easiest_target.clone();
             state.set_big_diff(big_diff);
 
@@ -877,7 +884,15 @@ impl ClientHandler {
                 let kas_payout = client_clone.kas_payout.lock().clone();
                 let lane_id = client_clone.session_uid();
                 let template_result = kaspa_api_clone
-                    .get_block_template(&wallet_addr, &remote_app, &canxium_addr, client_clone.session_uid(), generation, kas_payout, lane_id)
+                    .get_block_template(
+                        &wallet_addr,
+                        &remote_app,
+                        &canxium_addr,
+                        client_clone.session_uid(),
+                        generation,
+                        kas_payout,
+                        lane_id,
+                    )
                     .await;
 
                 let block = match template_result {
@@ -900,8 +915,9 @@ impl ClientHandler {
 
                 // Calculate target
                 let parent_target = calculate_target(block.header.bits as u64);
-            let easiest_target = kaspa_api_clone.merged_fc_target(&block).map(|t| t.max(parent_target.clone())).unwrap_or(parent_target);
-            let big_diff = easiest_target.clone();
+                let easiest_target =
+                    kaspa_api_clone.merged_fc_target(&block).map(|t| t.max(parent_target.clone())).unwrap_or(parent_target);
+                let big_diff = easiest_target.clone();
                 state.set_big_diff(big_diff);
 
                 // Serialize header - now returns Hash type directly
@@ -931,7 +947,8 @@ impl ClientHandler {
                 // Create Job struct with both block and pre_pow_hash
                 let job = Job { block: block.clone(), pre_pow_hash };
 
-                let initial_diff = cap_share_difficulty(share_handler.register_client_vardiff(&client_clone, min_diff), &easiest_target);
+                let initial_diff =
+                    cap_share_difficulty(share_handler.register_client_vardiff(&client_clone, min_diff), &easiest_target);
 
                 // Initialize state if first time (per-client state initialization)
                 if !state.is_initialized() {
@@ -997,7 +1014,9 @@ impl ClientHandler {
                 if capped != difficulty.diff_value {
                     difficulty.set_diff_value(capped);
                     state.set_stratum_diff(difficulty);
-                    if send_client_diff(&instance_id, &client_clone, capped).await.is_err() { return; }
+                    if send_client_diff(&instance_id, &client_clone, capped).await.is_err() {
+                        return;
+                    }
                 }
                 let job_id = state.add_job(job);
 
@@ -1158,7 +1177,8 @@ impl ClientHandler {
                 // A parent-only refresh must keep paying whoever the ORIGINAL template
                 // paid, or a refresh landing inside/outside the fee minute would silently
                 // move the payout mid-job. `paid_pool` is the recorded truth for this lane.
-                let refresh_payee = if kaspa_api.merged_lane_paid_pool(&old_job.block) { None } else { client.kas_payout.lock().clone() };
+                let refresh_payee =
+                    if kaspa_api.merged_lane_paid_pool(&old_job.block) { None } else { client.kas_payout.lock().clone() };
                 let parent = match kaspa_api.refresh_merged_parent(&old_job.block, refresh_payee).await {
                     Ok(Some(parent)) => parent,
                     Ok(None) => return,
@@ -1192,7 +1212,9 @@ impl ClientHandler {
                     if capped != difficulty.diff_value {
                         difficulty.set_diff_value(capped);
                         state.set_stratum_diff(difficulty);
-                        if send_client_diff(&instance_id, &client, capped).await.is_err() { return; }
+                        if send_client_diff(&instance_id, &client, capped).await.is_err() {
+                            return;
+                        }
                     }
                 }
                 let job_id = state.add_job(Job { block: parent.clone(), pre_pow_hash });

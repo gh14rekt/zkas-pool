@@ -1,7 +1,7 @@
 use crate::jsonrpc_event::{JsonRpcEvent, JsonRpcResponse};
 use crate::log_colors::LogColors;
-use kaspa_addresses::Address;
 use hex;
+use kaspa_addresses::Address;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

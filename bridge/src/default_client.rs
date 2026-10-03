@@ -20,8 +20,7 @@ static BIG_JOB_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r".*(BzMiner
 /// *candidate* -- `clean_wallet` bech32-validates it before returning it,
 /// because a length-bounded match silently truncates a longer address into a
 /// different one, which may itself be valid and belong to somebody else.
-static WALLET_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(kaspa(test|dev)?|zkas|firecash):[a-z0-9]{55,100}").unwrap());
+static WALLET_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(kaspa(test|dev)?|zkas|firecash):[a-z0-9]{55,100}").unwrap());
 
 /// Default logger configuration
 pub fn default_logger() {
@@ -575,10 +574,7 @@ fn clean_wallet(input: &str) -> Result<String, Box<dyn std::error::Error + Send 
 }
 
 /// Send extranonce to client
-async fn send_extranonce(
-    ctx: Arc<StratumContext>,
-    with_size: bool,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn send_extranonce(ctx: Arc<StratumContext>, with_size: bool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing::debug!("[EXTRANONCE] ===== SENDING EXTRANONCE TO {} =====", ctx.remote_addr);
 
     let remote_app = ctx.remote_app.lock().clone();
@@ -737,10 +733,11 @@ mod protocol_wire_tests {
         let config: serde_json::Value = serde_json::from_str(include_str!("../../ops/multimining/devnet.example.json")).unwrap();
         let address = config["instances"][1]["parent"]["payout_address"].as_str().unwrap();
         let (context, mut peer) = context_with_peer(5556).await;
-        let request = JsonRpcEvent::new(Some("2".to_owned()), "mining.authorize", vec![
-            json!("zkas:p9pyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyyssmdvpfyna.test"),
-            json!(address),
-        ]);
+        let request = JsonRpcEvent::new(
+            Some("2".to_owned()),
+            "mining.authorize",
+            vec![json!("zkas:p9pyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyyssmdvpfyna.test"), json!(address)],
+        );
         handle_authorize(context.clone(), request, None, None).await.unwrap();
         assert_eq!(read_json_line(&mut peer).await["result"], json!(true));
         assert_eq!(context.kas_payout.lock().as_deref(), Some(address));
@@ -750,12 +747,22 @@ mod protocol_wire_tests {
     async fn rental_login_validates_payout_and_returns_session_then_nonce() {
         let config: serde_json::Value = serde_json::from_str(include_str!("../../ops/multimining/devnet.example.json")).unwrap();
         let address = config["instances"][1]["parent"]["payout_address"].as_str().unwrap();
-        let handler = Arc::new(ClientHandler::new(Arc::new(ShareHandler::new("login-test".into())), 524288.0, HashMap::new(), 1, "login-test".into()));
+        let handler = Arc::new(ClientHandler::new(
+            Arc::new(ShareHandler::new("login-test".into())),
+            524288.0,
+            HashMap::new(),
+            1,
+            "login-test".into(),
+        ));
         let (ctx, mut peer) = context_with_peer(5556).await;
-        let request = crate::jsonrpc_event::unmarshal_event(&json!({"id":1,"jsonrpc":"2.0","method":"login","params":{
-            "login":"zkas:p9pyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyyssmdvpfyna.test",
-            "pass":address,"agent":"lazypickaxe.com"
-        }}).to_string()).unwrap();
+        let request = crate::jsonrpc_event::unmarshal_event(
+            &json!({"id":1,"jsonrpc":"2.0","method":"login","params":{
+                "login":"zkas:p9pyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyyssmdvpfyna.test",
+                "pass":address,"agent":"lazypickaxe.com"
+            }})
+            .to_string(),
+        )
+        .unwrap();
         handle_authorize(ctx.clone(), request, Some(handler), None).await.unwrap();
         let reply = read_json_line(&mut peer).await;
         assert_eq!(reply["id"], 1);

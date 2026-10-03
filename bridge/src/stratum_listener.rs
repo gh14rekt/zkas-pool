@@ -383,7 +383,10 @@ impl StratumListener {
                     // inspect it before null stripping/UTF-8 conversion, even
                     // when the ClientHello arrives one byte at a time.
                     if first_message && buffer[0] == 0x16 {
-                        info!("[CONNECTION] TLS probe on plaintext Stratum port from {}:{}; closing", ctx.remote_addr, ctx.remote_port);
+                        info!(
+                            "[CONNECTION] TLS probe on plaintext Stratum port from {}:{}; closing",
+                            ctx.remote_addr, ctx.remote_port
+                        );
                         ctx.disconnect();
                         break;
                     }
@@ -1164,8 +1167,12 @@ mod plaintext_probe_tests {
         let (server, remote) = listener.accept().await.unwrap();
         let (tx, _rx) = mpsc::unbounded_channel();
         let ctx = StratumContext::new(
-            remote.ip().to_string(), remote.port(), listener.local_addr().unwrap().port(),
-            server, Arc::new(MiningState::new()), tx,
+            remote.ip().to_string(),
+            remote.port(),
+            listener.local_addr().unwrap().port(),
+            server,
+            Arc::new(MiningState::new()),
+            tx,
         );
         (ctx, peer)
     }

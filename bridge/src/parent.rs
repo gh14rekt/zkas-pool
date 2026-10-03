@@ -158,10 +158,7 @@ impl ParentRpc {
 /// This affects pool configuration only; ZKas address/consensus code is unchanged.
 pub fn validate_address(address: &str) -> Result<()> {
     let (prefix, encoded) = address.split_once(':').context("parent address needs a prefix")?;
-    ensure!(
-        matches!(prefix, "kaspa" | "kaspatest" | "kaspadev" | "kaspasim"),
-        "unknown parent prefix"
-    );
+    ensure!(matches!(prefix, "kaspa" | "kaspatest" | "kaspadev" | "kaspasim"), "unknown parent prefix");
     const ALPHABET: &[u8] = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l";
     ensure!(encoded.len() >= 10 && encoded.len() <= 128, "invalid address length");
     let values: Vec<u8> = encoded

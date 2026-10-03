@@ -1,6 +1,7 @@
 pub mod anti_abuse;
 pub mod app_config;
 pub mod client_handler;
+mod dashboard_hashrate;
 pub mod default_client;
 pub mod errors;
 pub mod hasher;
@@ -11,7 +12,6 @@ pub mod merged;
 pub mod mining_state;
 pub mod net_utils;
 pub mod pow_diagnostic;
-mod dashboard_hashrate;
 pub mod prom;
 #[cfg(feature = "rkstratum_cpu_miner")]
 pub mod rkstratum_cpu_miner;
@@ -37,5 +37,5 @@ pub use stratum_listener::*;
 pub use stratum_server::BridgeConfig as StratumServerBridgeConfig;
 pub use stratum_server::*;
 
-pub mod parent;
 pub mod mining_ui;
+pub mod parent;

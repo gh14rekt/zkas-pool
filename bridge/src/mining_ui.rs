@@ -12,27 +12,35 @@ pub struct MiningConnection {
 }
 
 pub fn connections(config: &BridgeConfig) -> Vec<MiningConnection> {
-    config.instances.iter().enumerate().filter_map(|(i, instance)| {
-        let mode = instance.mining_mode?;
-        let port = instance.stratum_port.rsplit(':').next()?.parse::<u16>().ok()?;
-        if port == 0 { return None; }
-        let parent_prefix = match mode {
-            MiningMode::Native => None,
-            MiningMode::Kaspa => {
-                let pay = instance.parent.as_ref().map(|p| p.payout_address.clone()).unwrap_or_else(|| std::env::var("ZKAS_KASPA_PAY")
-                    .or_else(|_| std::env::var("FIRECASH_KASPA_PAY"))
-                    .unwrap_or_else(|_| config.global.merged_kaspa_pay_address.clone()));
-                let address = kaspa_addresses::Address::try_from(pay.as_str()).ok()?;
-                let prefix = address.prefix.to_string();
-                if !matches!(prefix.as_str(), "kaspa" | "kaspatest" | "kaspadev" | "kaspasim") { return None; }
-                Some(prefix)
+    config
+        .instances
+        .iter()
+        .enumerate()
+        .filter_map(|(i, instance)| {
+            let mode = instance.mining_mode?;
+            let port = instance.stratum_port.rsplit(':').next()?.parse::<u16>().ok()?;
+            if port == 0 {
+                return None;
             }
-        };
-        Some(MiningConnection {
-            instance: crate::log_colors::LogColors::format_instance_id(i + 1),
-            mode, port, parent_prefix,
+            let parent_prefix = match mode {
+                MiningMode::Native => None,
+                MiningMode::Kaspa => {
+                    let pay = instance.parent.as_ref().map(|p| p.payout_address.clone()).unwrap_or_else(|| {
+                        std::env::var("ZKAS_KASPA_PAY")
+                            .or_else(|_| std::env::var("FIRECASH_KASPA_PAY"))
+                            .unwrap_or_else(|_| config.global.merged_kaspa_pay_address.clone())
+                    });
+                    let address = kaspa_addresses::Address::try_from(pay.as_str()).ok()?;
+                    let prefix = address.prefix.to_string();
+                    if !matches!(prefix.as_str(), "kaspa" | "kaspatest" | "kaspadev" | "kaspasim") {
+                        return None;
+                    }
+                    Some(prefix)
+                }
+            };
+            Some(MiningConnection { instance: crate::log_colors::LogColors::format_instance_id(i + 1), mode, port, parent_prefix })
         })
-    }).collect()
+        .collect()
 }
 
 #[cfg(test)]

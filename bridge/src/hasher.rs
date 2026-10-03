@@ -187,10 +187,14 @@ pub fn diff_to_hash(diff: f64) -> f64 {
 /// Do not ask miners to discard hashes that solve either chain. Round the cap
 /// down to a power of two to avoid floating-point boundary losses.
 pub fn cap_share_difficulty(requested: f64, easiest_network_target: &BigUint) -> f64 {
-    if easiest_network_target.is_zero() { return requested; }
+    if easiest_network_target.is_zero() {
+        return requested;
+    }
     let limit = 2_f64.powi(224) / easiest_network_target.to_f64().unwrap_or(f64::MAX);
     let mut cap = 2_f64.powf(limit.log2().floor());
-    while diff_to_target_standard(cap) < *easiest_network_target { cap /= 2.0; }
+    while diff_to_target_standard(cap) < *easiest_network_target {
+        cap /= 2.0;
+    }
     requested.min(cap)
 }
 

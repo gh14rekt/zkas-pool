@@ -417,14 +417,24 @@ async fn main() -> Result<(), anyhow::Error> {
                     None
                 }
                 _ => {
-                    let parent = instance.parent.clone().ok_or_else(|| anyhow::anyhow!("merged port requires parent configuration"))?;
+                    let parent =
+                        instance.parent.clone().ok_or_else(|| anyhow::anyhow!("merged port requires parent configuration"))?;
                     anyhow::ensure!(parent.kind == mode, "port mode and parent kind disagree");
                     parent.validate()?;
                     Some(parent)
                 }
             };
-            KaspaApi::new_with_parent(global.kaspad_address.clone(), global.coinbase_tag_suffix.clone(), shutdown_rx.clone(), None, parent).await?
-        } else { Arc::clone(&kaspa_api) };
+            KaspaApi::new_with_parent(
+                global.kaspad_address.clone(),
+                global.coinbase_tag_suffix.clone(),
+                shutdown_rx.clone(),
+                None,
+                parent,
+            )
+            .await?
+        } else {
+            Arc::clone(&kaspa_api)
+        };
         let instance_shutdown_rx = shutdown_rx.clone();
 
         let is_first_instance = idx == 0;

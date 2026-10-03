@@ -41,9 +41,10 @@ impl RollingHashrate {
                 self.workers.remove(&oldest);
             }
         }
-        let worker = self.workers.entry(key).or_insert_with(|| WorkerWindow {
-            buckets: Box::new([Bucket::default(); BUCKETS]), last_second: second,
-        });
+        let worker = self
+            .workers
+            .entry(key)
+            .or_insert_with(|| WorkerWindow { buckets: Box::new([Bucket::default(); BUCKETS]), last_second: second });
         let bucket = &mut worker.buckets[(second % WINDOW_SECONDS) as usize];
         if bucket.second != second {
             *bucket = Bucket { second, work_gh: 0.0 };
@@ -58,12 +59,18 @@ impl RollingHashrate {
         }
         let second = seconds.floor() as u64;
         let elapsed = seconds.clamp(1.0, WINDOW_SECONDS as f64);
-        self.workers.iter().filter_map(|(key, worker)| {
-            let work: f64 = worker.buckets.iter()
-                .filter(|b| b.second <= second && second - b.second < WINDOW_SECONDS)
-                .map(|b| b.work_gh).sum();
-            (work > 0.0).then(|| (key.clone(), work / elapsed))
-        }).collect()
+        self.workers
+            .iter()
+            .filter_map(|(key, worker)| {
+                let work: f64 = worker
+                    .buckets
+                    .iter()
+                    .filter(|b| b.second <= second && second - b.second < WINDOW_SECONDS)
+                    .map(|b| b.work_gh)
+                    .sum();
+                (work > 0.0).then(|| (key.clone(), work / elapsed))
+            })
+            .collect()
     }
 }
 

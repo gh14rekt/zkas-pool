@@ -295,9 +295,14 @@ impl KaspaApi {
         let pay = std::env::var("ZKAS_KASPA_PAY").or_else(|_| std::env::var("FIRECASH_KASPA_PAY")).ok().or(configured_kaspa_pay);
         let disabled = std::env::var("ZKAS_MERGED_MINING").is_ok_and(|v| v == "0" || v.eq_ignore_ascii_case("false"));
         let parent = match (node, pay) {
-            (Some(endpoint), Some(payout_address)) if !disabled && !endpoint.is_empty() && !payout_address.is_empty() => Some(crate::parent::ParentConfig {
-                kind: crate::parent::MiningMode::Kaspa, endpoint, payout_address, allow_unsynced_private: false,
-            }),
+            (Some(endpoint), Some(payout_address)) if !disabled && !endpoint.is_empty() && !payout_address.is_empty() => {
+                Some(crate::parent::ParentConfig {
+                    kind: crate::parent::MiningMode::Kaspa,
+                    endpoint,
+                    payout_address,
+                    allow_unsynced_private: false,
+                })
+            }
             _ => None,
         };
         Self::new_with_parent(address, coinbase_tag_suffix, shutdown_rx, coinbase_address_override, parent).await
@@ -608,8 +613,10 @@ impl KaspaApi {
         if !self.merged_mining || self.parent.is_none() {
             return Ok(None);
         }
-        let h_fc =
-            match crate::merged::committed_h_fc(current_parent) { Some(h) => h, None => return Ok(None) };
+        let h_fc = match crate::merged::committed_h_fc(current_parent) {
+            Some(h) => h,
+            None => return Ok(None),
+        };
         if !self.pending_fc.lock().is_unsolved(&h_fc) {
             return Ok(None);
         }
@@ -680,7 +687,9 @@ impl KaspaApi {
             return MergedParentSubmitOutcome::DoesNotClearKaspa;
         }
 
-        let Some(parent_rpc) = &self.parent else { return MergedParentSubmitOutcome::NoKaspaClient; };
+        let Some(parent_rpc) = &self.parent else {
+            return MergedParentSubmitOutcome::NoKaspaClient;
+        };
         match parent_rpc.submit(parent).await {
             Ok(()) => {
                 info!("PARENT_ACCEPTED chain={:?} hash={}", parent_rpc.config.kind, parent.header.hash);
@@ -1137,9 +1146,7 @@ impl KaspaApi {
                                     // Parent unavailable: return the original native ZKas template.
                                     Err(e) => {
                                         if self.parent.is_some() {
-                                            warn!(
-                                                "merged: parent fetch failed ({e}); using NATIVE ZKas this round"
-                                            );
+                                            warn!("merged: parent fetch failed ({e}); using NATIVE ZKas this round");
                                         }
                                         return Ok(block);
                                     }
@@ -1435,7 +1442,9 @@ impl KaspaApiTrait for KaspaApi {
     fn validate_parent_payout(&self, address: &str) -> Result<(), String> {
         if let Some(parent) = &self.parent {
             crate::parent::validate_address(address).map_err(|e| e.to_string())?;
-            if !parent.config.accepts_address(address) { return Err("wrong parent payout network/chain".into()); }
+            if !parent.config.accepts_address(address) {
+                return Err("wrong parent payout network/chain".into());
+            }
         }
         Ok(())
     }

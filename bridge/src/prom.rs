@@ -513,14 +513,18 @@ async fn handle_http_request(
 
     if request.starts_with("GET ") && path == "/api/mining" {
         let options = WEB_MINING_CONNECTIONS.get().cloned().unwrap_or_default();
-        let options: Vec<_> = options.into_iter().filter(|entry| match mode {
-            HttpMode::Aggregated { .. } => true,
-            HttpMode::Instance { instance_id, .. } => entry.instance == *instance_id,
-        }).collect();
+        let options: Vec<_> = options
+            .into_iter()
+            .filter(|entry| match mode {
+                HttpMode::Aggregated { .. } => true,
+                HttpMode::Instance { instance_id, .. } => entry.instance == *instance_id,
+            })
+            .collect();
         let json = serde_json::to_string(&options)?;
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: {}\r\n\r\n{}",
-            json.len(), json
+            json.len(),
+            json
         );
         stream.write_all(response.as_bytes()).await?;
         return Ok(());
@@ -710,9 +714,9 @@ pub fn worker_context(instance_id: &str, ctx: &crate::stratum_context::StratumCo
         miner: miner.into(),
         wallet: ctx.wallet_addr.lock().clone(),
         // Address only -- never the ephemeral source port. The port makes every
-            // reconnect a brand-new, permanent time series, and nothing ever removes
-            // them: 307 workers had grown 267k series and 1.7 GB of RSS.
-            ip: ctx.remote_addr().to_string(),
+        // reconnect a brand-new, permanent time series, and nothing ever removes
+        // them: 307 workers had grown 267k series and 1.7 GB of RSS.
+        ip: ctx.remote_addr().to_string(),
     }
 }
 
@@ -1142,12 +1146,18 @@ static DASHBOARD_HISTORY: OnceLock<DashboardHistory> = OnceLock::new();
 
 fn dashboard_history() -> &'static DashboardHistory {
     DASHBOARD_HISTORY.get_or_init(|| {
-        let Some(path) = std::env::var_os("RKSTRATUM_DASHBOARD_HISTORY") else { return DashboardHistory::default(); };
-        match std::fs::read(path).map_err(anyhow::Error::from).and_then(|data| {
-            serde_json::from_slice::<DashboardHistory>(&data).map_err(anyhow::Error::from)
-        }) {
+        let Some(path) = std::env::var_os("RKSTRATUM_DASHBOARD_HISTORY") else {
+            return DashboardHistory::default();
+        };
+        match std::fs::read(path)
+            .map_err(anyhow::Error::from)
+            .and_then(|data| serde_json::from_slice::<DashboardHistory>(&data).map_err(anyhow::Error::from))
+        {
             Ok(history) => history,
-            Err(error) => { tracing::warn!("Dashboard history unavailable: {error}"); DashboardHistory::default() }
+            Err(error) => {
+                tracing::warn!("Dashboard history unavailable: {error}");
+                DashboardHistory::default()
+            }
         }
     })
 }
@@ -1807,24 +1817,43 @@ mod tests {
     #[tokio::test]
     async fn history_deduplicates_filters_and_never_changes_current_hashrate() {
         let mut stats = get_stats_json_filtered(Some("history-fixture-unused")).await;
-        let block = |instance: &str, hash: &str| BlockInfo { instance: instance.into(), hash: hash.into(),
-            worker: "fixture".into(), wallet: "fixture".into(), timestamp: "1".into(), nonce: "0".into(), bluescore: "1".into() };
-        stats.blocks.push(block("a", "same")); stats.totalBlocks = 1;
-        let history = DashboardHistory { blocks: vec![block("a", "same"), block("a", "new"), block("a", "new"), block("b", "other")],
-            shares_by_instance: HashMap::from([("a".into(), 10), ("b".into(), 20)]) };
+        let block = |instance: &str, hash: &str| BlockInfo {
+            instance: instance.into(),
+            hash: hash.into(),
+            worker: "fixture".into(),
+            wallet: "fixture".into(),
+            timestamp: "1".into(),
+            nonce: "0".into(),
+            bluescore: "1".into(),
+        };
+        stats.blocks.push(block("a", "same"));
+        stats.totalBlocks = 1;
+        let history = DashboardHistory {
+            blocks: vec![block("a", "same"), block("a", "new"), block("a", "new"), block("b", "other")],
+            shares_by_instance: HashMap::from([("a".into(), 10), ("b".into(), 20)]),
+        };
         merge_dashboard_history(&mut stats, &history, Some("a"));
-        assert_eq!(stats.totalBlocks, 2); assert_eq!(stats.blocks.len(), 2); assert_eq!(stats.totalShares, 10);
-        assert_eq!(stats.poolHashrate, 0.0); assert!(stats.workers.is_empty());
+        assert_eq!(stats.totalBlocks, 2);
+        assert_eq!(stats.blocks.len(), 2);
+        assert_eq!(stats.totalShares, 10);
+        assert_eq!(stats.poolHashrate, 0.0);
+        assert!(stats.workers.is_empty());
         let mut all = get_stats_json_filtered(Some("history-fixture-unused")).await;
         merge_dashboard_history(&mut all, &history, None);
-        assert_eq!(all.totalBlocks, 3); assert_eq!(all.totalShares, 30);
+        assert_eq!(all.totalBlocks, 3);
+        assert_eq!(all.totalShares, 30);
     }
 
     #[tokio::test]
     async fn dashboard_rates_merge_label_variants_and_filter_instances() {
         init_metrics();
-        let worker = WorkerContext { instance_id: "rolling-api-fixture".into(), worker_name: "rig".into(),
-            miner: "fixture".into(), wallet: "fixture-wallet".into(), ip: "127.0.0.1".into() };
+        let worker = WorkerContext {
+            instance_id: "rolling-api-fixture".into(),
+            worker_name: "rig".into(),
+            miner: "fixture".into(),
+            wallet: "fixture-wallet".into(),
+            ip: "127.0.0.1".into(),
+        };
         record_share_found(&worker, 10.0);
         let variant = WorkerContext { ip: "127.0.0.2".into(), ..worker };
         record_share_found(&variant, 90.0);
@@ -1881,7 +1910,10 @@ min_share_diff: 8192
 
         set_web_status_config("127.0.0.1:16110".to_string(), 2);
 
-        let mode = HttpMode::Instance { instance_id: crate::log_colors::LogColors::format_instance_id(1), web_bind: "127.0.0.1:0".to_string() };
+        let mode = HttpMode::Instance {
+            instance_id: crate::log_colors::LogColors::format_instance_id(1),
+            web_bind: "127.0.0.1:0".to_string(),
+        };
 
         let status_resp = send_request(mode.clone(), "GET /api/status HTTP/1.1\r\n\r\n").await;
         assert!(status_resp.contains("200 OK"));
