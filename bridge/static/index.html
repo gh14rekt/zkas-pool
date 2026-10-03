@@ -236,6 +236,11 @@
               <tbody id="blocksBody" class="text-gray-200"></tbody>
             </table>
           </div>
+          <nav aria-label="Blocks pagination" class="flex flex-wrap items-center justify-between gap-3 mt-3 text-xs text-gray-300">
+            <label>Rows <select id="blocksPageSize" class="bg-surface-1 border border-card rounded px-2 py-1"><option>25</option><option>50</option><option>100</option></select></label>
+            <span id="blocksPageInfo" aria-live="polite"></span>
+            <div class="flex gap-2"><button id="blocksPrev" type="button" class="bg-surface-1 border border-card rounded px-3 py-1 disabled:opacity-40">Previous</button><button id="blocksNext" type="button" class="bg-surface-1 border border-card rounded px-3 py-1 disabled:opacity-40">Next</button></div>
+          </nav>
         </div>
       </div>
 
@@ -273,7 +278,7 @@
                   <th class="text-left py-2 pr-3">Instance</th>
                   <th class="text-left py-2 pr-3">Worker</th>
                   <th class="text-left py-2 pr-3">Wallet</th>
-                  <th class="text-left py-2 pr-3">Hashrate (GH/s)</th>
+                  <th class="text-left py-2 pr-3">Hashrate · 5 min</th>
                   <th class="text-left py-2 pr-3">Difficulty</th>
                   <th class="text-left py-2 pr-3">Shares</th>
                   <th class="text-left py-2 pr-3">Stale</th>
@@ -287,6 +292,11 @@
               <tbody id="workersBody" class="text-gray-200"></tbody>
             </table>
           </div>
+          <nav aria-label="Workers pagination" class="flex flex-wrap items-center justify-between gap-3 mt-3 text-xs text-gray-300">
+            <label>Rows <select id="workersPageSize" class="bg-surface-1 border border-card rounded px-2 py-1"><option>25</option><option>50</option><option>100</option></select></label>
+            <span id="workersPageInfo" aria-live="polite"></span>
+            <div class="flex gap-2"><button id="workersPrev" type="button" class="bg-surface-1 border border-card rounded px-3 py-1 disabled:opacity-40">Previous</button><button id="workersNext" type="button" class="bg-surface-1 border border-card rounded px-3 py-1 disabled:opacity-40">Next</button></div>
+          </nav>
         </div>
       </div>
     </div>
