@@ -78,3 +78,15 @@ Publication hygiene
   addresses, local paths, private configurations and mining logs are excluded.
   Private test block identifiers are excluded from the validation summary.
   Original local commits are not ancestors of the published feature branches.
+
+Dashboard follow-up changes (separate review topics):
+  pr/dashboard-hashrate: difficulty-weighted rolling five-minute rates.
+  pr/dashboard-pagination: paginated blocks/workers, complete filtered CSV.
+  pr/kaspa-rpc-compat: Kaspa-only parent transport decoupled from child HRPs.
+  pr/upstream-native-lowdiff-ui additionally includes rental compatibility and
+    optional restart history. It introduces no alternative-parent chain names.
+  feat/multimining retains all parent modes and the same dashboard improvements.
+
+Additional validation: node ops/multimining/check-pagination.cjs exercises
+  5000 blocks, 120 workers, filters, complete CSV, CPU rows, cached rendering,
+  page retention, mobile layout and slow-network polling.
