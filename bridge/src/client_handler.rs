@@ -753,6 +753,9 @@ impl ClientHandler {
             let send_result = if is_iceriver {
                 // IceRiver expects minimal notification format (method + params only, no id or jsonrpc)
                 client_clone.send_notification("mining.notify", job_params.clone()).await
+            } else if remote_app_lower.contains("lazypickaxe") {
+                // The XMRig-style rental proxy expects method+params, with no id/jsonrpc.
+                client_clone.send_notification("mining.notify", job_params.clone()).await
             } else if remote_app_lower.contains("nicehash") {
                 client_clone.send_v1_notification("mining.notify", job_params.clone()).await
             } else {
@@ -1071,6 +1074,8 @@ impl ClientHandler {
                 let send_result = if is_iceriver_client {
                     // IceRiver expects minimal notification format (method + params only, no id or jsonrpc)
                     client_clone.send_notification("mining.notify", job_params.clone()).await
+                } else if remote_app_lower.contains("lazypickaxe") {
+                    client_clone.send_notification("mining.notify", job_params.clone()).await
                 } else if remote_app_lower.contains("nicehash") {
                     client_clone.send_v1_notification("mining.notify", job_params.clone()).await
                 } else {
@@ -1210,6 +1215,8 @@ impl ClientHandler {
                 }
 
                 let send_result = if is_iceriver {
+                    client.send_notification("mining.notify", params).await
+                } else if remote_app_lower.contains("lazypickaxe") {
                     client.send_notification("mining.notify", params).await
                 } else if remote_app_lower.contains("nicehash") {
                     client.send_v1_notification("mining.notify", params).await
