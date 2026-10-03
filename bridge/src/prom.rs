@@ -135,6 +135,7 @@ const INTERNAL_CPU_RECENT_BLOCKS_LIMIT: usize = 256;
 pub fn init_metrics() {
     // Record bridge start time for uptime calculation
     BRIDGE_START_TIME.get_or_init(Instant::now);
+    let _ = dashboard_history();
     DASHBOARD_HASHRATE.get_or_init(|| parking_lot::Mutex::new(RollingHashrate::new(8192)));
     SHARE_COUNTER.get_or_init(|| {
         register_counter_vec!("ks_valid_share_counter", "Number of shares found by worker over time", WORKER_LABELS).unwrap()
@@ -1096,7 +1097,7 @@ struct StatsResponse {
     bridgeUptime: Option<u64>, // Bridge uptime in seconds
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct BlockInfo {
     instance: String,
     worker: String,
@@ -1125,6 +1126,46 @@ struct WorkerInfo {
     current_difficulty: Option<f64>, // Current mining difficulty assigned to this worker
     #[serde(skip_serializing_if = "Option::is_none", rename = "sessionUptime")]
     session_uptime: Option<u64>, // Session uptime in seconds (time since last connection)
+}
+
+/// Optional immutable dashboard history imported at process start. Historical
+/// shares are counters only: they never contribute to current rolling hashrate.
+#[derive(Default, Deserialize)]
+struct DashboardHistory {
+    #[serde(default)]
+    blocks: Vec<BlockInfo>,
+    #[serde(default)]
+    shares_by_instance: HashMap<String, u64>,
+}
+
+static DASHBOARD_HISTORY: OnceLock<DashboardHistory> = OnceLock::new();
+
+fn dashboard_history() -> &'static DashboardHistory {
+    DASHBOARD_HISTORY.get_or_init(|| {
+        let Some(path) = std::env::var_os("RKSTRATUM_DASHBOARD_HISTORY") else { return DashboardHistory::default(); };
+        match std::fs::read(path).map_err(anyhow::Error::from).and_then(|data| {
+            serde_json::from_slice::<DashboardHistory>(&data).map_err(anyhow::Error::from)
+        }) {
+            Ok(history) => history,
+            Err(error) => { tracing::warn!("Dashboard history unavailable: {error}"); DashboardHistory::default() }
+        }
+    })
+}
+
+fn merge_dashboard_history(stats: &mut StatsResponse, history: &DashboardHistory, instance_id: Option<&str>) {
+    let mut seen: HashSet<String> = stats.blocks.iter().map(|b| b.hash.clone()).collect();
+    for block in &history.blocks {
+        if instance_id.is_some_and(|id| id != block.instance) || block.hash.is_empty() || !seen.insert(block.hash.clone()) {
+            continue;
+        }
+        stats.blocks.push(block.clone());
+        stats.totalBlocks = stats.totalBlocks.saturating_add(1);
+    }
+    for (instance, shares) in &history.shares_by_instance {
+        if instance_id.is_none_or(|id| id == instance) {
+            stats.totalShares = stats.totalShares.saturating_add(*shares);
+        }
+    }
 }
 
 fn parse_worker_labels(labels: &[prometheus::proto::LabelPair]) -> (String, String, String) {
@@ -1583,6 +1624,8 @@ async fn get_stats_json_filtered(instance_id: Option<&str>) -> StatsResponse {
         }
     }
 
+    merge_dashboard_history(&mut stats, dashboard_history(), instance_id);
+
     // Sort blocks by bluescore (newest first)
     stats.blocks.sort_by(|a, b| {
         let a_score: u64 = a.bluescore.parse().unwrap_or(0);
@@ -1760,6 +1803,22 @@ pub async fn start_prom_server(port: &str, instance_id: &str) -> Result<(), Box<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn history_deduplicates_filters_and_never_changes_current_hashrate() {
+        let mut stats = get_stats_json_filtered(Some("history-fixture-unused")).await;
+        let block = |instance: &str, hash: &str| BlockInfo { instance: instance.into(), hash: hash.into(),
+            worker: "fixture".into(), wallet: "fixture".into(), timestamp: "1".into(), nonce: "0".into(), bluescore: "1".into() };
+        stats.blocks.push(block("a", "same")); stats.totalBlocks = 1;
+        let history = DashboardHistory { blocks: vec![block("a", "same"), block("a", "new"), block("a", "new"), block("b", "other")],
+            shares_by_instance: HashMap::from([("a".into(), 10), ("b".into(), 20)]) };
+        merge_dashboard_history(&mut stats, &history, Some("a"));
+        assert_eq!(stats.totalBlocks, 2); assert_eq!(stats.blocks.len(), 2); assert_eq!(stats.totalShares, 10);
+        assert_eq!(stats.poolHashrate, 0.0); assert!(stats.workers.is_empty());
+        let mut all = get_stats_json_filtered(Some("history-fixture-unused")).await;
+        merge_dashboard_history(&mut all, &history, None);
+        assert_eq!(all.totalBlocks, 3); assert_eq!(all.totalShares, 30);
+    }
 
     #[tokio::test]
     async fn dashboard_rates_merge_label_variants_and_filter_instances() {
