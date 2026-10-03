@@ -54,28 +54,34 @@ use serde_json::{Value, json};
 struct Args {
     stratum: String,
     wallet: String,
+    password: String,
     worker: String,
     threads: usize,
     duration_secs: u64,
+    chunk_delay_ms: u64,
 }
 
 fn parse_args() -> Args {
     let mut stratum = "127.0.0.1:5559".to_string();
     let mut wallet = String::new();
+    let mut password = "x".to_string();
     let mut worker = "smoke-rig".to_string();
     let mut threads: usize = num_cpus_or(8);
     let mut duration_secs: u64 = 60;
+    let mut chunk_delay_ms: u64 = 0;
     let mut iter = env::args().skip(1);
     while let Some(flag) = iter.next() {
         match flag.as_str() {
             "--stratum" => stratum = iter.next().expect("--stratum value"),
             "--wallet" => wallet = iter.next().expect("--wallet value"),
+            "--password" => password = iter.next().expect("--password value"),
             "--worker" => worker = iter.next().expect("--worker value"),
             "--threads" => threads = iter.next().expect("--threads value").parse().expect("threads u32"),
             "--duration-secs" => duration_secs = iter.next().expect("--duration-secs value").parse().expect("duration u64"),
+            "--chunk-delay-ms" => chunk_delay_ms = iter.next().expect("--chunk-delay-ms value").parse().expect("delay u64"),
             "--help" | "-h" => {
                 eprintln!(
-                    "usage: cpu_stratum_miner [--stratum HOST:PORT] [--wallet kaspatest:...] [--worker NAME] [--threads N] [--duration-secs N]"
+                    "usage: cpu_stratum_miner --wallet ZKAS_ADDRESS [--stratum HOST:PORT] [--password PARENT_ADDRESS] [--worker NAME] [--threads N] [--duration-secs N] [--chunk-delay-ms N]"
                 );
                 std::process::exit(0);
             }
@@ -85,7 +91,8 @@ fn parse_args() -> Args {
     if wallet.is_empty() {
         panic!("--wallet is required (use `cargo run --example gen_testnet_addr` to generate one)");
     }
-    Args { stratum, wallet, worker, threads, duration_secs }
+    assert!(threads > 0 && threads < 1024);
+    Args { stratum, wallet, password, worker, threads, duration_secs, chunk_delay_ms }
 }
 
 fn num_cpus_or(default: usize) -> usize {
@@ -108,6 +115,9 @@ struct Shared {
     pool_target: Mutex<Option<Uint256>>,
     stop: AtomicBool,
     shares_submitted: AtomicU64,
+    shares_accepted: AtomicU64,
+    shares_rejected: AtomicU64,
+    nonce_prefix: Mutex<(u64, u64)>,
     hashes: AtomicU64,
 }
 
@@ -124,13 +134,16 @@ fn main() {
     // is happy without and that keeps the Legacy job-data format
     // active (no IceRiver / BzMiner heuristics get triggered).
     send_request(&stream_writer, 1, "mining.subscribe", json!(["katpool-cpu-stratum-miner/0.1"]));
-    send_request(&stream_writer, 2, "mining.authorize", json!([format!("{}.{}", args.wallet, args.worker)]));
+    send_request(&stream_writer, 2, "mining.authorize", json!([format!("{}.{}", args.wallet, args.worker), args.password]));
 
     let shared = Arc::new(Shared {
         current_job: Mutex::new(None),
         pool_target: Mutex::new(None),
         stop: AtomicBool::new(false),
         shares_submitted: AtomicU64::new(0),
+        shares_accepted: AtomicU64::new(0),
+        shares_rejected: AtomicU64::new(0),
+        nonce_prefix: Mutex::new((0, u64::MAX)),
         hashes: AtomicU64::new(0),
     });
 
@@ -144,7 +157,8 @@ fn main() {
         let nstep = args.threads as u64;
         let worker_label = args.worker.clone();
         let wallet = args.wallet.clone();
-        workers.push(thread::spawn(move || mine_loop(i as u64, nstep, shared, stream_writer, &worker_label, &wallet)));
+        let chunk_delay = Duration::from_millis(args.chunk_delay_ms);
+        workers.push(thread::spawn(move || mine_loop(i as u64, nstep, shared, stream_writer, &worker_label, &wallet, chunk_delay)));
     }
 
     // Spawn the reader; it owns the inbound JSON-RPC stream and
@@ -180,10 +194,16 @@ fn main() {
     shared.stop.store(true, Ordering::Release);
 
     for w in workers {
-        let _ = w.join();
+        w.join().expect("CPU worker failed");
+    }
+    let drain_deadline = Instant::now() + Duration::from_secs(5);
+    while shared.shares_accepted.load(Ordering::Relaxed) + shared.shares_rejected.load(Ordering::Relaxed)
+        < shared.shares_submitted.load(Ordering::Relaxed) && Instant::now() < drain_deadline {
+        thread::sleep(Duration::from_millis(20));
     }
     // The reader loop is blocked on TCP; closing the writer (which is
     // the same socket fd) terminates the read. Best-effort drop.
+    let _ = stream_writer.lock().expect("writer mutex").shutdown(std::net::Shutdown::Both);
     drop(stream_writer);
     let _ = reader_thread.join();
     let _ = progress_thread.join();
@@ -191,6 +211,7 @@ fn main() {
     let elapsed = started.elapsed().as_secs_f64();
     let shares = shared.shares_submitted.load(Ordering::Relaxed);
     let hashes = shared.hashes.load(Ordering::Relaxed);
+    eprintln!("[results] accepted={} rejected={}", shared.shares_accepted.load(Ordering::Relaxed), shared.shares_rejected.load(Ordering::Relaxed));
     println!(
         "{{\"elapsed_secs\":{:.2},\"threads\":{},\"hashes\":{},\"shares_submitted\":{},\"hashrate_mhs\":{:.2}}}",
         elapsed,
@@ -199,6 +220,11 @@ fn main() {
         shares,
         (hashes as f64 / elapsed.max(0.001)) / 1_000_000.0
     );
+    let accepted = shared.shares_accepted.load(Ordering::Relaxed);
+    let rejected = shared.shares_rejected.load(Ordering::Relaxed);
+    let pending = shares.saturating_sub(accepted + rejected);
+    println!("{}", json!({"accepted":accepted,"rejected":rejected,"pending":pending}));
+    if accepted == 0 || rejected != 0 || pending != 0 { std::process::exit(2); }
 }
 
 fn send_request(writer: &Mutex<TcpStream>, id: u64, method: &str, params: Value) {
@@ -217,9 +243,6 @@ fn send_share(writer: &Mutex<TcpStream>, id: u64, wallet: &str, worker: &str, jo
 
 fn read_loop(reader: BufReader<TcpStream>, shared: Arc<Shared>, writer: Arc<Mutex<TcpStream>>) {
     for line in reader.lines() {
-        if shared.stop.load(Ordering::Relaxed) {
-            break;
-        }
         let line = match line {
             Ok(l) => l,
             Err(_) => break,
@@ -236,6 +259,16 @@ fn read_loop(reader: BufReader<TcpStream>, shared: Arc<Shared>, writer: Arc<Mute
         };
         let method = v.get("method").and_then(Value::as_str);
         match method {
+            Some("mining.set_extranonce") => {
+                if let Some(prefix) = v.get("params").and_then(|p| p.get(0)).and_then(Value::as_str) {
+                    assert!(prefix.len() <= 14 && prefix.len() % 2 == 0);
+                    let bits = (16 - prefix.len()) * 4;
+                    let (prefix, mask) = if prefix.is_empty() { (0, u64::MAX) } else {
+                        (u64::from_str_radix(prefix, 16).expect("nonce prefix") << bits, (1u64 << bits) - 1)
+                    };
+                    *shared.nonce_prefix.lock().expect("prefix mutex") = (prefix, mask);
+                }
+            }
             Some("mining.notify") => {
                 if let Some(job) = parse_notify(&v) {
                     *shared.current_job.lock().expect("job mutex") = Some(job.clone());
@@ -250,7 +283,14 @@ fn read_loop(reader: BufReader<TcpStream>, shared: Arc<Shared>, writer: Arc<Mute
                 }
             }
             _ => {
-                // Responses (id present, no method) — pass through silently.
+                if v.get("id").and_then(Value::as_u64).is_some_and(|id| id >= 100) {
+                    if v.get("result").and_then(Value::as_bool) == Some(true) {
+                        shared.shares_accepted.fetch_add(1, Ordering::Relaxed);
+                    } else {
+                        shared.shares_rejected.fetch_add(1, Ordering::Relaxed);
+                        eprintln!("[reject] {v}");
+                    }
+                }
                 let _ = &writer;
             }
         }
@@ -299,7 +339,7 @@ fn diff_to_target(diff: f64) -> Uint256 {
     Uint256::from_be_bytes(be.try_into().expect("32 bytes"))
 }
 
-fn mine_loop(worker_idx: u64, nstep: u64, shared: Arc<Shared>, writer: Arc<Mutex<TcpStream>>, worker_label: &str, wallet: &str) {
+fn mine_loop(worker_idx: u64, nstep: u64, shared: Arc<Shared>, writer: Arc<Mutex<TcpStream>>, worker_label: &str, wallet: &str, chunk_delay: Duration) {
     let mut local_id: u64 = 100 + worker_idx;
     let mut last_job_id: Option<String> = None;
     let mut hasher: Option<PowHash> = None;
@@ -311,7 +351,10 @@ fn mine_loop(worker_idx: u64, nstep: u64, shared: Arc<Shared>, writer: Arc<Mutex
             break;
         }
         let job_opt = shared.current_job.lock().expect("job mutex").clone();
-        let target = match *shared.pool_target.lock().expect("target mutex") {
+        // Release the mutex before sleeping; otherwise workers starve the reader
+        // that must publish the first target.
+        let target_opt = *shared.pool_target.lock().expect("target mutex");
+        let target = match target_opt {
             Some(t) => t,
             None => {
                 thread::sleep(Duration::from_millis(50));
@@ -339,18 +382,21 @@ fn mine_loop(worker_idx: u64, nstep: u64, shared: Arc<Shared>, writer: Arc<Mutex
         let h = hasher.as_ref().expect("hasher");
         let m = matrix.as_ref().expect("matrix");
         let mut local_hashes: u64 = 0;
-        for _ in 0..4096_u64 {
-            let raw = h.clone().finalize_with_nonce(nonce);
+        let (prefix, mask) = *shared.nonce_prefix.lock().expect("prefix mutex");
+        for _ in 0..64_u64 {
+            let full_nonce = prefix | (nonce & mask);
+            let raw = h.clone().finalize_with_nonce(full_nonce);
             let heavy = m.heavy_hash(raw);
             local_hashes += 1;
             let pow_value = Uint256::from_le_bytes(heavy.as_bytes());
             if pow_value <= target {
-                send_share(&writer, local_id, wallet, worker_label, &job.job_id, nonce);
+                send_share(&writer, local_id, wallet, worker_label, &job.job_id, full_nonce);
                 local_id += 1024;
                 shared.shares_submitted.fetch_add(1, Ordering::Relaxed);
             }
             nonce = nonce.wrapping_add(nstep);
         }
         shared.hashes.fetch_add(local_hashes, Ordering::Relaxed);
+        if !chunk_delay.is_zero() { thread::sleep(chunk_delay); }
     }
 }

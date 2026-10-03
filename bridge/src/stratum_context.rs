@@ -53,7 +53,7 @@ pub struct StratumContext {
     /// connection and bech32 decoding on that path would be pure waste.
     ///
     /// This does NOT affect ZKas rewards, which always pay `wallet_addr`.
-    pub kas_payout: Arc<Mutex<Option<Address>>>,
+    pub kas_payout: Arc<Mutex<Option<String>>>,
     pub remote_app: Arc<Mutex<String>>,
     pub id: Arc<Mutex<i32>>,
     pub extranonce: Arc<Mutex<String>>,

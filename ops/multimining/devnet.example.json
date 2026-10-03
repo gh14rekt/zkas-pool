@@ -13,6 +13,30 @@
       "min_share_diff": 1e-05,
       "mining_mode": "native",
       "extranonce_size": 2
+    },
+    {
+      "stratum_port": "127.0.0.1:5556",
+      "min_share_diff": 1e-05,
+      "mining_mode": "kaspa",
+      "parent": {
+        "kind": "kaspa",
+        "endpoint": "127.0.0.1:28110",
+        "payout_address": "kaspadev:qqjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzg84e95fhp",
+        "allow_unsynced_private": true
+      },
+      "extranonce_size": 2
+    },
+    {
+      "stratum_port": "127.0.0.1:5557",
+      "min_share_diff": 1e-05,
+      "mining_mode": "sedra",
+      "parent": {
+        "kind": "sedra",
+        "endpoint": "127.0.0.1:28210",
+        "payout_address": "sedradev:qqjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgyy42d4g4",
+        "allow_unsynced_private": true
+      },
+      "extranonce_size": 2
     }
   ]
 }

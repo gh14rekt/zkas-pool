@@ -4,18 +4,12 @@
 //! It plugs in as a decorator around [`crate::kaspaapi::KaspaApi`] so the entire
 //! stratum/job/share-validation core stays untouched:
 //!
-//! * **get_block_template** — fetch a ZKas template, then hand the ASIC a
-//!   *parent* (Kaspa-shaped) block whose single coinbase commits to the ZKas
-//!   block hash `H_fc` and whose target (`bits`) is the ZKas target. The ASIC
-//!   grinds the parent's kHeavyHash exactly as it would a normal job.
-//! * **submit_block** — when a share clears the target, the "block" the bridge hands
-//!   back is that solved parent. We rebuild the [`AuxPow`] from it and submit the
-//!   *ZKas* block carrying the aux proof (the node accepts it via Option-2 dual
-//!   acceptance). Because the aux rides `RpcRawHeader.aux_pow`, the existing
-//!   `(&block).into()` submit path transmits it unchanged.
-//!
-//! Production uses real Kaspa parents when available and native ZKas otherwise.
-//! The synthetic parent builder is retained only as a unit-test fixture.
+//! * **get_block_template** returns a native ZKas template, or a real Kaspa/Sedra
+//!   template with a coinbase commitment to the ZKas block hash `H_fc`.
+//! * Parent and child difficulties are independent. Each solved leg is submitted
+//!   separately. AuxPoW travels in `RpcRawHeader.aux_pow` without changing H_fc.
+//! * Missing/unavailable parents fall back to native ZKas. The synthetic builder
+//!   below is only a unit-test fixture and is excluded from production builds.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 

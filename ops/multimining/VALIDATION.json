@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-01",
+  "networks": "isolated devnets; real PoW; no consensus source changes",
+  "zkas_commit": "e583cbf8ac2c165df6c4faee1a0f99b3c7ed31a3",
+  "kaspa_release": "v2.0.1",
+  "sedra_commit": "4a1153d8497d94f866961a67f25df722e2e3a0bc",
+  "rust": "1.94.0",
+  "scope": "standalone direct/SOLO bridge; private CPU testing",
+  "tests": {
+    "library": 79,
+    "protocol_and_other_binary_tests": 122,
+    "failed": 0,
+    "upstream_ignored": 1
+  },
+  "stratum_shares": {
+    "native": {
+      "accepted": 15,
+      "rejected": 0
+    },
+    "kaspa": {
+      "accepted": 11,
+      "rejected": 0
+    },
+    "sedra": {
+      "accepted": 1100,
+      "rejected": 0
+    }
+  },
+  "limitations": [
+    "No mainnet deployment or ASIC/MRR test",
+    "No new PPLNS/PPS accounting",
+    "No explorer RPC extension",
+    "High-rate debug Sedra run left replies pending at stop; paced smoke test drained completely; throughput tuning remains necessary before rental"
+  ],
+  "sedra_paced_final": {
+    "accepted": 89,
+    "pending": 0,
+    "rejected": 0
+  },
+  "lifecycle_passed": true,
+  "wrong_parent_payout_rejected": true,
+  "artifact_policy": "Machine-specific logs, block identifiers, addresses and deployment configuration are excluded. Reproduce with your own isolated devnets."
+}

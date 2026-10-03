@@ -2013,6 +2013,7 @@ fn format_hashrate(ghs: f64) -> String {
 // Trait for kaspa API operations
 #[async_trait::async_trait]
 pub trait KaspaApiTrait: Send + Sync {
+    fn validate_parent_payout(&self, _address: &str) -> Result<(), String> { Ok(()) }
     async fn get_block_template(
         &self,
         wallet_addr: &str,
@@ -2022,7 +2023,7 @@ pub trait KaspaApiTrait: Send + Sync {
         generation: u64,
         // `kas_payout`: the lane's own `kaspa:` payout from the stratum password;
         // `None` pays the pool. `lane_id`: selects the lane's pool-fee minute.
-        kas_payout: Option<kaspa_addresses::Address>,
+        kas_payout: Option<String>,
         lane_id: u64,
     ) -> Result<Block, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -2079,7 +2080,7 @@ pub trait KaspaApiTrait: Send + Sync {
     async fn refresh_merged_parent(
         &self,
         _current_parent: &Block,
-        _payee: Option<kaspa_addresses::Address>,
+        _payee: Option<String>,
     ) -> Result<Option<Block>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(None)
     }
@@ -2106,7 +2107,7 @@ mod merged_settlement_order_tests {
             _canxium_addr: &str,
             _session_uid: u64,
             _generation: u64,
-            _kas_payout: Option<kaspa_addresses::Address>,
+            _kas_payout: Option<String>,
             _lane_id: u64,
         ) -> Result<Block, Box<dyn std::error::Error + Send + Sync>> {
             unreachable!("template fetch is outside this regression")
@@ -2300,7 +2301,7 @@ mod event_bus_tests {
     use tokio::sync::broadcast;
 
     const SAMPLE_HASH: &str = "06acc7179752e80fa4ef421f3dd7ff5b5bda006e3fc76c14f33f324079a3a9e2";
-    const SAMPLE_WALLET: &str = "kaspa:qz4j8mu269z8llgcczmfukm9fan2fq822kzxu4cfukd5fq";
+    const SAMPLE_WALLET: &str = "kaspa:qqjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgfpyysjzgtturx5zd";
 
     fn handler_with_bus() -> (ShareHandler, broadcast::Receiver<PoolEvent>) {
         let (tx, rx) = broadcast::channel::<PoolEvent>(POOL_EVENT_CHANNEL_CAPACITY);

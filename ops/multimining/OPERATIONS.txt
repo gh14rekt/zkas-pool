@@ -1,0 +1,88 @@
+THREE-MODE DIRECT/SOLO BRIDGE — experimental branch
+
+Scope
+  One standalone stratum-bridge process, three independent instance APIs:
+  native ZKas, Kaspa+ZKas, Sedra+ZKas. No node consensus changes.
+  Explicit instance mining_mode overrides legacy environment merge settings.
+  Native mode rejects parent configuration. MM requires matching parent.kind.
+  Missing/unreachable/unsynchronized parent produces genuine native ZKas work.
+  Old MM jobs retain their pending ZKas commitment across fallback.
+  The synthetic parent builder is compiled only for unit tests.
+
+Configuration
+  devnet.example.json is JSON (also valid YAML), using loopback listeners:
+    ZKas gRPC 28610; Kaspa gRPC 28110; Sedra gRPC 28210
+    Stratum native 5555; Kaspa 5556; Sedra 5557
+  The example addresses are synthetic encoding fixtures, not wallet addresses.
+  Replace them with disposable addresses from your own private devnet wallets.
+  Username: ZKas payout address, optionally followed by .worker
+  Password on an MM port: miner's payout address for that parent/network.
+  x/empty placeholder uses the configured parent payout. Invalid non-placeholder
+  addresses are rejected on MM ports, including addresses for the wrong chain.
+  Payout address encoding is validated in the bridge; ZKas consensus/address
+  libraries are not extended to recognize Sedra or Kaspa testnet prefixes.
+
+Rewards and limitations
+  Existing direct/SOLO reward behavior is retained. This is not a new PPLNS/PPS
+  accounting system. ZKas coinbase pays the miner. Upstream's parent reward fee
+  lane is retained: one minute per hour pays the configured parent pool address.
+  Parent and ZKas targets are independent. Shares cover the easier target.
+  Parent submission precedes the once-only claim of a ZKas commitment; subsequent
+  nonces can still earn parent rewards after that ZKas block has been claimed.
+  Difficulty below 1 is emitted as a JSON fractional number. Real ASIC/rental
+  compatibility at such difficulties still requires hardware testing.
+  The CPU example speaks legacy Kaspa Stratum, not every ASIC dialect. Existing
+  protocol wire tests cover additional handshakes; they do not replace MRR tests.
+  Parent RPC opens one bidirectional stream per request on a reused HTTP/2 channel.
+  RPC timeout is 2s with 3s template retry backoff; tune after latency/load tests.
+
+Build
+  Use Rust 1.94 and installed C/C++/clang/protobuf dependencies.
+  cargo build --locked -p kaspa-stratum-bridge --bin stratum-bridge \
+    --example cpu_stratum_miner --example multimining_probe
+  cargo test --locked -p kaspa-stratum-bridge --all-targets
+  Dependencies are pinned to official ZKas v1.0.10 commit
+  e583cbf8ac2c165df6c4faee1a0f99b3c7ed31a3. No node source changes are required.
+
+Private test networks
+  Use separate appdirs, loopback P2P/RPC, no DNS seeds and zero outgoing peers.
+  Run the official ZKas v1.0.10 and Kaspa v2.0.1 binaries with --devnet and
+  --enable-unsynced-mining. Sedra v2.0.0 uses --devnet and
+  --allow-submit-block-when-not-synced. All three enforce real proof of work.
+  Generate a disposable ZKas devnet wallet with shielded-pay new --network devnet.
+  Store that seed privately outside the repository.
+  BRIDGE_ALLOW_UNSYNCED=1 stratum-bridge --node-mode external \
+    --config ops/multimining/devnet.example.json
+  This flag is for private bootstrap tests. Production must wait for sync.
+  allow_unsynced_private also checks the parent identifies devnet/simnet.
+
+Tests
+  cpu_stratum_miner --stratum 127.0.0.1:5555 --wallet ZKAS_DEV_ADDRESS \
+    --threads 1 --duration-secs 30
+  For parent ports, add --password PARENT_DEV_ADDRESS and use 5556/5557.
+  On the very easy Sedra devnet, --chunk-delay-ms 10 keeps this debug-build smoke
+  run below saturation. The CPU tool exits nonzero for rejected, unacknowledged,
+  or zero accepted shares; it drains replies for up to 5s before disconnecting.
+  multimining_probe CONFIG_JSON ZKAS_DEV_ADDRESS native|kaspa|sedra
+  Probe refuses a silently native MM job, mines real PoW and requires the ZKas
+  submit response to indicate acceptance. Parent submission is reported separately.
+  --expect-fallback asserts native work on an intentionally unavailable parent.
+  --lifecycle prints PAUSE_PARENT, then waits for a stdin line after the operator
+  pauses their OWN PRIVATE parent node. It verifies native fallback, submits an
+  old MM proof, then prints RESUME_PARENT. Resume the same private node and send
+  another stdin line. It then requires new MM work without restarting the bridge.
+  Never pause or manipulate a production node for this test.
+
+Explorer implications
+  Native PoW and AuxPoW can be classified by replaying current validation; merely
+  checking witness presence is insufficient because valid native PoW wins first.
+  Parent chain identity is not authenticated by ZKas consensus. Matching parent
+  blocks or predecessors on a parent node provides external evidence. A miner's
+  chain label alone is an untrusted claim. Below-parent-target proofs need not
+  correspond to accepted parent blocks. Current read RPC drops the AuxPoW witness;
+  exposing it to explorers is a separate additive RPC change, not implemented here.
+
+Deployment boundary
+  No public pool, mainnet mining, VPS deployment or rented ASIC test is performed
+  by these instructions. Review fee behavior, payout addresses, rate limits,
+  resource bounds and ASIC difficulty handling before the planned hardware trial.

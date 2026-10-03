@@ -408,8 +408,21 @@ async fn main() -> Result<(), anyhow::Error> {
         let instance_num = idx + 1;
         let instance = instance_config.clone();
         let global = config.global.clone();
-        let kaspa_api_clone = if instance.mining_mode == Some(kaspa_stratum_bridge::parent::MiningMode::Native) {
-            KaspaApi::new_native(global.kaspad_address.clone(), global.coinbase_tag_suffix.clone(), shutdown_rx.clone(), None).await?
+        let kaspa_api_clone = if let Some(mode) = instance.mining_mode {
+            use kaspa_stratum_bridge::parent::MiningMode;
+            let parent = match mode {
+                MiningMode::Native => {
+                    anyhow::ensure!(instance.parent.is_none(), "native port must not configure a parent");
+                    None
+                }
+                _ => {
+                    let parent = instance.parent.clone().ok_or_else(|| anyhow::anyhow!("merged port requires parent configuration"))?;
+                    anyhow::ensure!(parent.kind == mode, "port mode and parent kind disagree");
+                    parent.validate()?;
+                    Some(parent)
+                }
+            };
+            KaspaApi::new_with_parent(global.kaspad_address.clone(), global.coinbase_tag_suffix.clone(), shutdown_rx.clone(), None, parent).await?
         } else { Arc::clone(&kaspa_api) };
         let instance_shutdown_rx = shutdown_rx.clone();
 
